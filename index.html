@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>D&D Combat Simulator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="p-4 md:p-8">
+
+    <header class="text-center mb-8 max-w-7xl mx-auto">
+        <h1 class="title-font text-4xl md:text-5xl font-bold text-white">D&D Combat Simulator</h1>
+        <p class="text-gray-400 mt-2">A comprehensive tool for testing D&D 5e encounter balance.</p>
+        <p class="text-xs text-gray-500 mt-4">This website is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.</p>
+    </header>
+
+    <div class="flex flex-col-reverse lg:flex-row gap-8 max-w-screen-2xl mx-auto">
+        <!-- Main Content -->
+        <main class="flex-grow">
+            <!-- Combatant Setup -->
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
+                <!-- Team A -->
+                <div id="team-a-panel" class="card space-y-4">
+                    <h2 class="text-2xl title-font font-semibold text-blue-400 border-b border-gray-700 pb-2">Team A</h2>
+                    <div id="team-a-list" class="space-y-2"></div>
+                    <div id="editor-a" class="pt-4 border-t border-gray-700"></div>
+                </div>
+
+                <!-- Team B -->
+                <div id="team-b-panel" class="card space-y-4">
+                    <h2 class="text-2xl title-font font-semibold text-red-400 border-b border-gray-700 pb-2">Team B</h2>
+                    <div id="team-b-list" class="space-y-2"></div>
+                    <div id="editor-b" class="pt-4 border-t border-gray-700"></div>
+                </div>
+            </div>
+
+            <!-- Simulation Controls -->
+            <div class="card mb-8">
+                <h2 class="text-2xl title-font font-semibold text-white mb-4">Simulation Controls</h2>
+                <div class="flex flex-col sm:flex-row items-center gap-4">
+                    <label for="simulation-count" class="font-semibold">Number of Simulations:</label>
+                    <input type="number" id="simulation-count" value="1000" class="form-input w-full sm:w-48">
+                    <button id="run-button" class="btn btn-primary w-full sm:w-auto flex-grow">Run Simulations</button>
+                    <button id="reset-button" class="btn btn-secondary w-full sm:w-auto">Reset All</button>
+                </div>
+            </div>
+
+            <!-- Results -->
+            <div class="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                <div class="xl:col-span-1 card">
+                    <h2 class="text-2xl title-font font-semibold text-white mb-4">Summary</h2>
+                    <div id="simulation-summary" class="text-lg space-y-2"><p>Run a simulation to see the results.</p></div>
+                </div>
+                <div class="xl:col-span-2 card">
+                    <h2 class="text-2xl title-font font-semibold text-white mb-4">Detailed Log (Last Run)</h2>
+                    <div id="simulation-log" class="bg-gray-900 p-4 rounded-md h-96 overflow-y-auto font-mono text-sm leading-relaxed">
+                        <p class="text-gray-500">The detailed log of the final simulation run will appear here.</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Instructions Sidebar -->
+        <aside id="instructions-sidebar" class="lg:w-96 xl:w-[30rem] flex-shrink-0 card h-full lg:max-h-[85vh] overflow-y-auto">
+            <h2 class="text-2xl title-font font-semibold text-white mb-4 border-b border-gray-700 pb-2">Instructions</h2>
+            <div class="space-y-6 text-gray-300">
+                <div>
+                    <h3 class="font-bold text-lg text-white mb-2">Actions Syntax (Attacks & Spells)</h3>
+                    <p class="text-sm">Use comma-separated `key:value` pairs.</p>
+                    <p class="text-sm bg-gray-800 p-2 rounded-md mt-2 font-mono">
+                        <span class="text-green-400">name</span>:Claw, <span class="text-green-400">toHit</span>:3, <span class="text-green-400">damage</span>:1d6+1, <span class="text-green-400">type</span>:slashing <br>
+                        <span class="text-green-400">name</span>:Greatsword, <span class="text-green-400">toHit</span>:5, <span class="text-green-400">damage</span>:2d6+3, <span class="text-green-400">type</span>:slashing, <span class="text-green-400">heavy</span>:true <br>
+                        <span class="text-green-400">name</span>:Shortbow, <span class="text-green-400">toHit</span>:5, <span class="text-green-400">damage</span>:1d6+3, <span class="text-green-400">type</span>:piercing, <span class="text-green-400">ranged</span>:true <br>
+                        <span class="text-green-400">name</span>:Fireball, <span class="text-green-400">spell</span>:3, <span class="text-green-400">save</span>:15/dex, <span class="text-green-400">damage</span>:8d6, <span class="text-green-400">targets</span>:3, <span class="text-green-400">half</span>:true, <span class="text-green-400">targets</span>:4 <br>
+                        <span class="text-green-400">name</span>:Sacred Flame, <span class="text-green-400">spell</span>:0, <span class="text-green-400">save</span>:13/dex, <span class="text-green-400">damage</span>:1d8, <span class="text-green-400">type</span>:radiant <br>
+                        <span class="text-green-400">name</span>:Cure Wounds, <span class="text-green-400">spell</span>:1, <span class="text-green-400">heal</span>:1d8+3 <br>
+                        <span class="text-green-400">name</span>:Bless, <span class="text-green-400">spell</span>:1, <span class="text-green-400">effect</span>:blessed/10, <span class="text-green-400">targets</span>:3
+                    </p>
+                </div>
+                <div>
+                    <h3 class="font-bold text-lg text-white mb-2">Abilities & Feats Keywords</h3>
+                    <p class="text-sm">Add keywords in the "Abilities" tab, separated by commas.</p>
+                    <ul class="space-y-2 mt-3 text-sm">
+                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">multiattack:2/Claw;1/Bite</p><p class="text-xs mt-1">Performs a sequence of attacks. Use semicolons to separate attacks.</p></li>
+                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">legendary_resistance:3</p><p class="text-xs mt-1">Can choose to succeed on 3 failed saving throws.</p></li>
+                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">magic_resistance</p><p class="text-xs mt-1">Advantage on saves vs. spells and magical effects.</p></li>
+                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">action_surge</p><p class="text-xs mt-1">Once per combat, take an extra action.</p></li>
+                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">divine_smite</p><p class="text-xs mt-1">On hit, expend a spell slot to add radiant damage.</p></li>
+                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">great_weapon_master</p><p class="text-xs mt-1">Take -5 to hit for +10 damage on melee attacks.</p></li>
+                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">heavy_armor_master</p><p class="text-xs mt-1">Reduce incoming non-magical physical damage by 3.</p></li>
+                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">lucky</p><p class="text-xs mt-1">Reroll any 1s on d20 rolls.</p></li>
+                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">pack_tactics</p><p class="text-xs mt-1">Gain advantage on attacks if an ally is near the target.</p></li>
+                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">rage:<span class="text-yellow-400">X</span></p><p class="text-xs mt-1">Add X to damage and gain resistance to physical damage.</p></li>
+                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">reckless</p><p class="text-xs mt-1">Gain advantage on attacks, but attacks against you have advantage.</p></li>
+                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">savage_attacker</p><p class="text-xs mt-1">Once per turn, reroll melee weapon damage dice and take higher result.</p></li>
+                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">sharpshooter</p><p class="text-xs mt-1">Take -5 to hit for +10 damage on ranged attacks.</p></li>
+                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">sneak_attack:<span class="text-yellow-400">XdY</span></p><p class="text-xs mt-1">Once per turn, add XdY damage if you have advantage or an ally is near the target.</p></li>
+                    </ul>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/state.js"></script>
+    <script src="js/data.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/simulation.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
