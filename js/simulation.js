@@ -245,12 +245,21 @@ function performAction(attacker, action, context) {
         }
     }
 
-    if (context.opponents.length === 0 && !action.heal && !action.effect) return;
+    // Get a fresh list of living combatants for this specific action to avoid targeting defeated enemies.
+    const freshContext = {
+        allies: context.allies.filter(c => c.hp > 0),
+        opponents: context.opponents.filter(c => c.hp > 0)
+    };
 
-    if (action.heal) performHealAction(attacker, action, context);
-    else if (action.effect) performEffectAction(attacker, action, context);
-    else if (action.toHit) performAttackAction(attacker, context.opponents[0], action, context);
-    else if (action.save) performSaveAction(attacker, action, context);
+    if (freshContext.opponents.length === 0 && !action.heal && !action.effect) return;
+
+    if (action.heal) performHealAction(attacker, action, freshContext);
+    else if (action.effect) performEffectAction(attacker, action, freshContext);
+    else if (action.toHit) {
+        const target = freshContext.opponents[0];
+        if (target) performAttackAction(attacker, target, action, freshContext);
+    }
+    else if (action.save) performSaveAction(attacker, action, freshContext);
 }
 
 function chooseAction(attacker, actionType, context) {

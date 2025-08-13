@@ -48,7 +48,6 @@ function runBatchSimulations() {
 function resetAll() {
     if (confirm("Are you sure you want to clear all teams and logs?")) {
         appState.reset();
-        renderEditor('A'); renderEditor('B');
         document.getElementById('simulation-log').innerHTML = '<p class="text-gray-500">Log appears here.</p>';
         document.getElementById('simulation-summary').innerHTML = '<p>Summary appears here.</p>';
         renderTeams();
@@ -66,10 +65,10 @@ function handleDelegatedClick(event) {
             switchTab(team, tab);
             break;
         case 'commit':
-            handleCommit(team);
+            handleCommit();
             break;
         case 'cancel-edit':
-            cancelEdit(team);
+            cancelEdit();
             break;
         case 'move-combatant':
             moveCombatant(team, id, parseInt(direction));
@@ -80,6 +79,15 @@ function handleDelegatedClick(event) {
         case 'remove-combatant':
             removeCombatant(team, id);
             break;
+        case 'open-add-editor':
+            openEditorModal(team);
+            break;
+        case 'save-team':
+            saveTeam(team);
+            break;
+        case 'load-team':
+            loadTeam(team);
+            break;
     }
 }
 
@@ -88,8 +96,6 @@ function initializeApp() {
     document.getElementById('reset-button').addEventListener('click', resetAll);
     document.body.addEventListener('click', handleDelegatedClick);
 
-    renderEditor('A');
-    renderEditor('B');
     renderTeams();
 }
 

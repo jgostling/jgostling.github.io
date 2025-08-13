@@ -4,7 +4,6 @@ function readCombatantFromForm(team, existingId = null) {
     const prefix = team.toLowerCase();
     const combatant = {
         id: existingId || `c${Date.now()}${Math.random()}`,
-        team: team,
         name: document.getElementById(`name-${prefix}`).value || 'Combatant',
         hp: parseInt(document.getElementById(`hp-${prefix}`).value) || 10,
         ac: parseInt(document.getElementById(`ac-${prefix}`).value) || 10,

@@ -1,24 +1,24 @@
 // js/ui.js
 
-function getEditorHTML(team) {
-    const combatant = appState.getEditingCombatant(team) || {};
-    const isEditing = !!combatant.id;
-    const prefix = team.toLowerCase();
+function getEditorHTML() {
+    const { combatant, team, isEditing } = appState.getEditorState();
+    const data = combatant || {};
+    const prefix = 'modal'; // Use a single, static prefix for the modal editor
     
-    const name = combatant.name || '';
-    const hp = combatant.hp || '';
-    const ac = combatant.ac || '';
-    const size = combatant.size || 'medium';
-    const type = combatant.type || '';
-    const init_mod = combatant.initiative_mod || 0;
-    const saves = combatant.saves || { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 };
-    const spell_slots = combatant.spell_slots || { 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0 };
-    const attacks = (combatant.attacks || []).map(a => stringifyAction(a)).join('\n');
-    const abilities = (combatant.abilities ? Object.entries(combatant.abilities).map(([k,v]) => v === true ? k : `${k}:${v}`).join(', ') : '');
+    const name = data.name || '';
+    const hp = data.hp || '';
+    const ac = data.ac || '';
+    const size = data.size || 'medium';
+    const type = data.type || '';
+    const init_mod = data.initiative_mod || 0;
+    const saves = data.saves || { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 };
+    const spell_slots = data.spell_slots || { 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0 };
+    const attacks = (data.attacks || []).map(a => stringifyAction(a)).join('\n');
+    const abilities = (data.abilities ? Object.entries(data.abilities).map(([k,v]) => v === true ? k : `${k}:${v}`).join(', ') : '');
 
     return `
-        <h3 class="font-semibold text-lg mb-2 text-white">${isEditing ? `Editing ${name}` : 'Add Combatant'}</h3>
-        <input type="hidden" id="id-${prefix}" value="${combatant.id || ''}">
+        <h3 class="font-semibold text-lg mb-2 text-white">${isEditing ? `Editing ${name}` : `Add Combatant to Team ${team}`}</h3>
+        <input type="hidden" id="id-${prefix}" value="${data.id || ''}">
         
         <div class="flex border-b border-gray-700 mb-4">
             <button class="tab active" data-action="switch-tab" data-team="${prefix}" data-tab="stats">Core Stats</button>
@@ -55,51 +55,107 @@ function getEditorHTML(team) {
         </div>
 
         <div class="flex gap-4 mt-4">
-            <button data-action="commit" data-team="${team}" class="btn ${team === 'A' ? 'btn-primary' : 'btn-danger'} flex-grow">${isEditing ? 'Update Combatant' : 'Add to Team'}</button>
-            ${isEditing ? `<button data-action="cancel-edit" data-team="${team}" class="btn btn-secondary">Cancel</button>` : ''}
+            <button data-action="commit" class="btn ${team === 'A' ? 'btn-primary' : 'btn-danger'} flex-grow">${isEditing ? 'Update Combatant' : 'Add to Team'}</button>
+            <button data-action="cancel-edit" class="btn btn-secondary">Cancel</button>
         </div>
     `;
 }
 
 function switchTab(prefix, tabName) {
-    document.querySelectorAll(`#editor-${prefix} .tab`).forEach(t => t.classList.remove('active'));
-    document.querySelectorAll(`#editor-${prefix} .tab-content`).forEach(c => c.classList.remove('active'));
-    document.querySelector(`#editor-${prefix} button[data-tab="${tabName}"]`).classList.add('active');
+    document.querySelectorAll(`#editor-modal-content .tab`).forEach(t => t.classList.remove('active'));
+    document.querySelectorAll(`#editor-modal-content .tab-content`).forEach(c => c.classList.remove('active'));
+    document.querySelector(`#editor-modal-content button[data-tab="${tabName}"]`).classList.add('active');
     document.getElementById(`tab-${prefix}-${tabName}`).classList.add('active');
 }
 
-function renderEditor(team) {
-    document.getElementById(`editor-${team.toLowerCase()}`).innerHTML = getEditorHTML(team);
+function openEditorModal(team, id = null) {
+    if (id) {
+        appState.openEditorForUpdate(team, id);
+    } else {
+        appState.openEditorForAdd(team);
+    }
+    document.getElementById('editor-modal-content').innerHTML = getEditorHTML();
+    document.getElementById('editor-modal-overlay').classList.remove('hidden');
+    document.getElementById('editor-modal').classList.remove('hidden');
 }
 
-function handleCommit(team) {
-    const prefix = team.toLowerCase();
-    const id = document.getElementById(`id-${prefix}`).value;
+function closeEditorModal() {
+    appState.clearEditorState();
+    document.getElementById('editor-modal-overlay').classList.add('hidden');
+    document.getElementById('editor-modal').classList.add('hidden');
+    document.getElementById('editor-modal-content').innerHTML = ''; // Clear content for next use
+}
 
-    if (id) {
-        const updatedCombatant = readCombatantFromForm(team, id);
+function handleCommit() {
+    const { combatant, team, isEditing } = appState.getEditorState();
+
+    if (isEditing) {
+        const updatedCombatant = readCombatantFromForm('modal', combatant.id);
+        updatedCombatant.team = team;
         appState.updateCombatant(team, updatedCombatant);
-        appState.clearEditingCombatant(team);
-        renderEditor(team); // Re-render editor to clear it and show 'Add' form
     } else {
-        const count = parseInt(document.getElementById(`count-${prefix}`).value) || 1;
+        const count = parseInt(document.getElementById(`count-modal`).value) || 1;
         for (let i = 0; i < count; i++) {
-            const newCombatant = readCombatantFromForm(team);
+            const newCombatant = readCombatantFromForm('modal');
             if (count > 1) newCombatant.name += ` ${i + 1}`;
+            newCombatant.team = team;
             appState.addCombatant(team, newCombatant);
         }
     }
     renderTeams();
+    closeEditorModal();
+}
+
+function saveTeam(team) {
+    const { teamA, teamB } = appState.getTeams();
+    const teamToSave = team === 'A' ? teamA : teamB;
+
+    if (teamToSave.length === 0) {
+        alert(`Team ${team} is empty. Nothing to save.`);
+        return;
+    }
+
+    // Use null, 2 for pretty-printing the JSON to make it human-readable.
+    const dataStr = JSON.stringify(teamToSave, null, 2);
+    const blob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `dnd_team_${team.toLowerCase()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function loadTeam(team) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+
+    input.onchange = e => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = event => {
+            const combatants = JSON.parse(event.target.result);
+            appState.setTeam(team, combatants);
+            renderTeams();
+        };
+        reader.readAsText(file);
+    };
+
+    input.click();
 }
 
 function editCombatant(team, id) {
-    appState.setEditingCombatant(team, id);
-    renderEditor(team);
+    openEditorModal(team, id);
 }
 
-function cancelEdit(team) {
-    appState.clearEditingCombatant(team);
-    renderEditor(team);
+function cancelEdit() {
+    closeEditorModal();
 }
 
 function moveCombatant(team, id, direction) {
