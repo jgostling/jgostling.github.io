@@ -9,6 +9,7 @@ function getEditorHTML() {
     const hp = data.hp || '';
     const ac = data.ac || '';
     const size = data.size || 'medium';
+    const role = data.role || 'frontline';
     const type = data.type || '';
     const init_mod = data.initiative_mod || 0;
     const saves = data.saves || { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 };
@@ -33,6 +34,7 @@ function getEditorHTML() {
                 <input type="number" id="hp-${prefix}" placeholder="HP" class="form-input" value="${hp}">
                 <input type="number" id="ac-${prefix}" placeholder="AC" class="form-input" value="${ac}">
                 <select id="size-${prefix}" class="form-select">${sizeOrder.map(s => `<option value="${s}" ${s === size ? 'selected' : ''}>${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}</select>
+                <select id="role-${prefix}" class="form-select"><option value="frontline" ${role === 'frontline' ? 'selected' : ''}>Frontline</option><option value="backline" ${role === 'backline' ? 'selected' : ''}>Backline</option></select>
                 <input type="number" id="init_mod-${prefix}" placeholder="Init Mod" class="form-input" value="${init_mod}">
                 <input type="number" id="count-${prefix}" placeholder="Count" value="1" class="form-input" ${isEditing ? 'disabled' : ''}>
             </div>
@@ -158,6 +160,11 @@ function cancelEdit() {
     closeEditorModal();
 }
 
+function copyCombatant(team, id) {
+    appState.copyCombatant(team, id);
+    renderTeams();
+}
+
 function moveCombatant(team, id, direction) {
     appState.moveCombatant(team, id, direction);
     renderTeams();
@@ -175,18 +182,20 @@ function renderTeams() {
 }
 
 function renderCombatantCard(c, team) {
+    const roleDisplay = (c.role || 'frontline').charAt(0).toUpperCase() + (c.role || 'frontline').slice(1);
     const abilities = c.abilities ? Object.keys(c.abilities).join(', ') : 'None';
     return `
         <div class="bg-gray-700 p-3 rounded-md flex justify-between items-center">
             <div>
-                <p class="font-bold text-white">${c.name} <span class="text-xs text-gray-400">(${c.size})</span></p>
-                <p class="text-sm text-gray-300">HP: ${c.hp}, AC: ${c.ac}, Init: ${c.initiative_mod >= 0 ? '+' : ''}${c.initiative_mod}</p>
+                <p class="font-bold text-white">${c.name} <span class="text-xs text-gray-400">(${roleDisplay}, ${c.size})</span></p>
+                <p class="text-sm text-gray-300">HP: ${c.hp}, AC: ${c.ac}, Init: ${c.initiative_mod >= 0 ? '+' : ''}${c.initiative_mod}, Threat: ${c.threat || 1}</p>
                 <p class="text-xs text-gray-400">Abilities: ${abilities}</p>
             </div>
             <div class="flex gap-1">
                 <button data-action="move-combatant" data-team="${team}" data-id="${c.id}" data-direction="-1" class="btn btn-secondary p-1 text-xs">▲</button>
                 <button data-action="move-combatant" data-team="${team}" data-id="${c.id}" data-direction="1" class="btn btn-secondary p-1 text-xs">▼</button>
                 <button data-action="edit-combatant" data-team="${team}" data-id="${c.id}" class="btn btn-secondary p-1 text-xs">Edit</button>
+                <button data-action="copy-combatant" data-team="${team}" data-id="${c.id}" class="btn btn-secondary p-1 text-xs">Copy</button>
                 <button data-action="remove-combatant" data-team="${team}" data-id="${c.id}" class="btn btn-danger p-1 text-xs">&times;</button>
             </div>
         </div>`;

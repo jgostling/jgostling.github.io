@@ -8,6 +8,7 @@ function readCombatantFromForm(team, existingId = null) {
         hp: parseInt(document.getElementById(`hp-${prefix}`).value) || 10,
         ac: parseInt(document.getElementById(`ac-${prefix}`).value) || 10,
         size: document.getElementById(`size-${prefix}`).value,
+        role: document.getElementById(`role-${prefix}`).value,
         type: document.getElementById(`type-${prefix}`).value.toLowerCase(),
         initiative_mod: parseInt(document.getElementById(`init_mod-${prefix}`).value) || 0,
         saves: {},
@@ -32,6 +33,8 @@ function readCombatantFromForm(team, existingId = null) {
         const [key, value] = ability.split(':').map(s => s.trim());
         combatant.abilities[key] = value || true;
     });
+
+    combatant.threat = calculateThreat(combatant);
 
     return combatant;
 }
@@ -59,6 +62,9 @@ function parseAction(line) {
         else if (keyTrim === 'heavy' || keyTrim === 'ranged') {
             action[keyTrim] = true;
         }
+        else if (keyTrim === 'targeting' && ['self', 'other', 'any'].includes(value)) {
+            action[keyTrim] = value;
+        }
         else action[keyTrim] = value;
     });
     return action;
@@ -72,6 +78,7 @@ function stringifyAction(action) {
         if (key === 'effect' && value) return `effect:${value.name}/${value.duration}`;
         if (key === 'heavy' && value === true) return 'heavy';
         if (key === 'ranged' && value === true) return 'ranged';
+        if (key === 'targeting' && value && value !== 'any') return `targeting:${value}`;
         if (value && typeof value !== 'boolean') return `${key}:${value}`;
         return null;
     }).filter(Boolean).join(', ');

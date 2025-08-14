@@ -76,6 +76,9 @@ function handleDelegatedClick(event) {
         case 'edit-combatant':
             editCombatant(team, id);
             break;
+        case 'copy-combatant':
+            copyCombatant(team, id);
+            break;
         case 'remove-combatant':
             removeCombatant(team, id);
             break;

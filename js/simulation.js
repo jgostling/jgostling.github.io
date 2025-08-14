@@ -6,11 +6,12 @@ function setupCombatant(c) {
     return {
         ...deepCopy(c),
         status: {
-            usedBonusAction: false, usedAction: false, usedActionSurge: false,
+            usedBonusAction: false, usedAction: false,
             isRaging: false, usedRelentless: false, usedSneakAttack: false,
             usedSavageAttacker: false, canMakeGWMAttack: false,
             actionUses: {}, spellSlots: deepCopy(c.spell_slots),
             conditions: [], legendaryResistances: parseInt(c.abilities.legendary_resistance) || 0,
+            actionSurgeUses: c.abilities.action_surge ? (parseInt(c.abilities.action_surge, 10) || 1) : 0,
             isReckless: false,
         }
     };
@@ -29,7 +30,8 @@ function rollInitiative(combatants) {
 function getContext(combatant, allCombatants) {
     const opponents = allCombatants.filter(c => c.team !== combatant.team && c.hp > 0);
     const allies = allCombatants.filter(c => c.team === combatant.team && c.hp > 0);
-    return { opponents, allies };
+    const downedAllies = allCombatants.filter(c => c.team === combatant.team && c.hp === 0);
+    return { opponents, allies, downedAllies };
 }
 
 function hasCondition(c, name) {
@@ -102,6 +104,70 @@ function makeSavingThrow(target, dc, type, isMagical = false) {
         return true;
     }
     return total >= dc;
+}
+
+function getValidTargets(attacker, action, context) {
+    const { opponents } = context;
+    if (opponents.length === 0) return [];
+
+    const enemyFrontliners = opponents.filter(o => (o.role || 'frontline') === 'frontline');
+    const enemyBackliners = opponents.filter(o => o.role === 'backline');
+
+    // Ranged attacks can target anyone.
+    if (action.ranged) {
+        return opponents;
+    }
+
+    // Melee/non-ranged attacks must target frontline if available.
+    if (enemyFrontliners.length > 0) {
+        return enemyFrontliners;
+    }
+
+    // If no frontliners, melee can target backliners.
+    return enemyBackliners;
+}
+
+function chooseTarget(attacker, possibleTargets) {
+    if (possibleTargets.length === 0) return null;
+    if (possibleTargets.length === 1) return possibleTargets[0];
+
+    const scoredTargets = possibleTargets.map(target => {
+        let score = 0;
+
+        // Factor 1: Prioritize higher threat targets
+        score += (target.threat || 1) * 1.5;
+
+        // Factor 2: Prioritize wounded targets
+        const hpPercent = target.hp / target.maxHp;
+        score += (1 - hpPercent) * 50;
+
+        // Factor 3: Huge bonus for a likely kill this turn
+        if ((attacker.threat || 0) >= target.hp) {
+            score += 100;
+        }
+
+        // Use a small minimum score to ensure every valid target has a chance.
+        return { target, score: Math.max(0.1, score) };
+    });
+
+    const totalScore = scoredTargets.reduce((sum, current) => sum + current.score, 0);
+    
+    // This case should be rare with the minimum score, but it's a good safeguard.
+    if (totalScore <= 0) {
+        return possibleTargets[Math.floor(Math.random() * possibleTargets.length)];
+    }
+
+    let randomPoint = Math.random() * totalScore;
+
+    for (const scoredTarget of scoredTargets) {
+        randomPoint -= scoredTarget.score;
+        if (randomPoint <= 0) {
+            return scoredTarget.target;
+        }
+    }
+
+    // Fallback for floating point issues, though it should be very rare.
+    return scoredTargets[scoredTargets.length - 1].target;
 }
 
 function performAttackAction(attacker, target, action, context) {
@@ -195,20 +261,23 @@ function performAttackAction(attacker, target, action, context) {
     }
 }
 
-function performSaveAction(attacker, action, context) {
-    const numTargets = parseInt(action.targets) || 1;
-    const targets = context.opponents.slice(0, numTargets);
+function performSaveAction(attacker, action, context, targets) {
+    if (targets.length === 0) {
+        log(`${attacker.name} tries to cast ${action.name}, but there are no valid targets.`, 1);
+        return;
+    }
+
     log(`${attacker.name} casts ${action.name}, targeting ${targets.map(t=>t.name).join(', ')}.`, 1);
 
     targets.forEach(target => {
         const saved = makeSavingThrow(target, action.save.dc, action.save.type, true);
         if (!saved) {
             const damage = rollDice(action.damage);
-            const finalDamage = applyDamage(target, damage, action.type, true);
+            const finalDamage = applyDamage(target, damage, action.type, action.spellLevel > 0);
             log(`Target fails, takes ${finalDamage} damage.`, 2);
         } else if (action.half) {
             const damage = Math.floor(rollDice(action.damage) / 2);
-            const finalDamage = applyDamage(target, damage, action.type, true);
+            const finalDamage = applyDamage(target, damage, action.type, action.spellLevel > 0);
             log(`Target saves, takes ${finalDamage} damage.`, 2);
         } else {
             log(`Target saves, no effect.`, 2);
@@ -217,15 +286,63 @@ function performSaveAction(attacker, action, context) {
 }
 
 function performHealAction(attacker, action, context) {
-    const allies = context.allies.filter(a => a.hp < a.maxHp).sort((a,b) => a.hp - b.hp);
-    const target = allies[0] || attacker;
+    let potentialTargets = [];
+    const targeting = action.targeting || 'any';
+    const allPossibleAllies = [...context.allies, ...(context.downedAllies || [])];
+
+    if (targeting === 'self') {
+        potentialTargets = [attacker];
+    } else if (targeting === 'other') {
+        potentialTargets = allPossibleAllies.filter(a => a.id !== attacker.id);
+    } else { // 'any'
+        potentialTargets = allPossibleAllies;
+    }
+
+    const injuredTargets = potentialTargets.filter(a => a.hp < a.maxHp).sort((a, b) => a.hp - b.hp);
+    
+    if (injuredTargets.length === 0) {
+        log(`${attacker.name} tries to use ${action.name}, but there are no valid targets to heal.`, 1);
+        return;
+    }
+
+    const target = injuredTargets[0];
+    const wasDowned = target.hp === 0;
     const healAmount = rollDice(action.heal);
     target.hp = Math.min(target.maxHp, target.hp + healAmount);
-    log(`${attacker.name} heals ${target.name} for ${healAmount} HP with ${action.name}.`, 1);
+    if (wasDowned) {
+        log(`${attacker.name} brings ${target.name} back from the brink with ${action.name}, healing for ${healAmount} HP!`, 1);
+    } else {
+        log(`${attacker.name} heals ${target.name} for ${healAmount} HP with ${action.name}.`, 1);
+    }
 }
 
 function performEffectAction(attacker, action, context) {
-    const targets = action.effect.name === 'blessed' ? context.allies.slice(0, parseInt(action.targets) || 1) : context.opponents.slice(0, parseInt(action.targets) || 1);
+    const targeting = action.targeting || 'any';
+    const numTargets = parseInt(action.targets) || 1;
+    let potentialTargets = [];
+
+    // Determine if the effect is beneficial (targets allies) or harmful (targets opponents)
+    const isBeneficial = action.effect.name === 'blessed'; // This could be expanded later
+
+    if (isBeneficial) {
+        if (targeting === 'self') {
+            potentialTargets = [attacker];
+        } else if (targeting === 'other') {
+            potentialTargets = context.allies.filter(a => a.id !== attacker.id);
+        } else { // 'any'
+            potentialTargets = context.allies;
+        }
+    } else {
+        potentialTargets = getValidTargets(attacker, action, context);
+    }
+
+    const targets = potentialTargets.slice(0, numTargets);
+
+    if (targets.length === 0) {
+        log(`${attacker.name} tries to use ${action.name}, but there are no valid targets.`, 1);
+        return;
+    }
+
     log(`${attacker.name} casts ${action.name}, affecting ${targets.map(t=>t.name).join(', ')}.`, 1);
     targets.forEach(t => t.status.conditions.push(deepCopy(action.effect)));
 }
@@ -246,9 +363,11 @@ function performAction(attacker, action, context) {
     }
 
     // Get a fresh list of living combatants for this specific action to avoid targeting defeated enemies.
+    const allKnownAllies = [...context.allies, ...(context.downedAllies || [])];
     const freshContext = {
-        allies: context.allies.filter(c => c.hp > 0),
-        opponents: context.opponents.filter(c => c.hp > 0)
+        allies: allKnownAllies.filter(c => c.hp > 0),
+        opponents: context.opponents.filter(c => c.hp > 0),
+        downedAllies: allKnownAllies.filter(c => c.hp === 0)
     };
 
     if (freshContext.opponents.length === 0 && !action.heal && !action.effect) return;
@@ -256,10 +375,27 @@ function performAction(attacker, action, context) {
     if (action.heal) performHealAction(attacker, action, freshContext);
     else if (action.effect) performEffectAction(attacker, action, freshContext);
     else if (action.toHit) {
-        const target = freshContext.opponents[0];
-        if (target) performAttackAction(attacker, target, action, freshContext);
+        const possibleTargets = getValidTargets(attacker, action, freshContext);
+        if (possibleTargets.length > 0) {
+            const target = chooseTarget(attacker, possibleTargets);
+            performAttackAction(attacker, target, action, freshContext);
+        } else {
+            log(`${attacker.name} has no valid targets for ${action.name}.`, 1);
+        }
     }
-    else if (action.save) performSaveAction(attacker, action, freshContext);
+    else if (action.save) {
+        let targets = [];
+        const possibleTargets = getValidTargets(attacker, action, freshContext);
+        if (possibleTargets.length > 0) {
+            const numTargets = parseInt(action.targets) || 1;
+            if (numTargets === 1) {
+                targets.push(chooseTarget(attacker, possibleTargets));
+            } else {
+                targets = possibleTargets.slice(0, numTargets);
+            }
+            performSaveAction(attacker, action, freshContext, targets);
+        }
+    }
 }
 
 function chooseAction(attacker, actionType, context) {
@@ -278,18 +414,55 @@ function chooseAction(attacker, actionType, context) {
     let bestScore = -1;
 
     for (const action of possibleActions) {
-        let score = -1; 
+        let score = -1;
+        const targeting = action.targeting || 'any';
+
         if (action.heal) {
-            const injuredAllies = context.allies.filter(ally => ally.hp < ally.maxHp * 0.5); 
-            if (injuredAllies.length > 0) {
-                const mostInjured = injuredAllies.sort((a,b) => a.hp - b.hp)[0];
-                score = 100 + (1 - (mostInjured.hp / mostInjured.maxHp)) * 100;
+            let potentialTargets = [];
+            const allPossibleAllies = [...context.allies, ...(context.downedAllies || [])];
+
+            if (targeting === 'self') {
+                potentialTargets = [attacker];
+            } else if (targeting === 'other') {
+                potentialTargets = allPossibleAllies.filter(a => a.id !== attacker.id);
+            } else { // 'any'
+                potentialTargets = allPossibleAllies;
+            }
+
+            const downedTargets = potentialTargets.filter(ally => ally.hp === 0);
+            if (downedTargets.length > 0) {
+                score = 500; // Very high priority to bring someone back
+            } else {
+                const injuredAllies = potentialTargets.filter(ally => ally.hp < ally.maxHp * 0.5);
+                if (injuredAllies.length > 0) {
+                    const mostInjured = injuredAllies.sort((a, b) => a.hp - b.hp)[0];
+                    score = 100 + (1 - (mostInjured.hp / mostInjured.maxHp)) * 100;
+                }
             }
         } else if (action.effect) {
-            if (action.effect.name === 'blessed') {
-                if (!context.allies.some(ally => hasCondition(ally, 'blessed'))) score = 90;
-            } else if (action.effect.name === 'baned') {
-                if (!context.opponents.some(opp => hasCondition(opp, 'baned'))) score = 85;
+            const isBeneficial = action.effect.name === 'blessed'; // This could be expanded later
+
+            if (isBeneficial) {
+                let potentialTargets = [];
+                if (targeting === 'self') {
+                    potentialTargets = [attacker];
+                } else if (targeting === 'other') {
+                    potentialTargets = context.allies.filter(a => a.id !== attacker.id);
+                } else { // 'any'
+                    potentialTargets = context.allies;
+                }
+                // Only cast if there are valid targets who don't already have the effect
+                const validTargets = potentialTargets.filter(ally => !hasCondition(ally, action.effect.name));
+                if (validTargets.length > 0) {
+                    score = 90; // Base score for a useful buff
+                }
+            } else { // Harmful effect
+                const possibleTargets = getValidTargets(attacker, action, context);
+                // Only cast if there are opponents who don't already have the effect
+                const validTargets = possibleTargets.filter(opp => !hasCondition(opp, action.effect.name));
+                if (validTargets.length > 0) {
+                    score = 85; // Base score for a useful debuff
+                }
             }
         } else if (action.damage) {
             score = rollDice(action.damage);
@@ -374,10 +547,10 @@ function handleAction(attacker, context) {
     }
 
     let turnActions = 1;
-    if (attacker.abilities.action_surge && !attacker.status.usedActionSurge) {
+    if (attacker.status.actionSurgeUses > 0) {
         turnActions = 2;
-        attacker.status.usedActionSurge = true;
-        log(`${attacker.name} uses Action Surge!`, 1);
+        attacker.status.actionSurgeUses--;
+        log(`${attacker.name} uses Action Surge! (${attacker.status.actionSurgeUses} remaining)`, 1);
     }
     
     for(let i = 0; i < turnActions; i++) {

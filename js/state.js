@@ -46,6 +46,9 @@ class AppState {
             if (!c.name || !c.hp || !c.ac) return null;
             // Ensure maxHp is set, which is done on creation but might be missing from a file.
             c.maxHp = c.maxHp || c.hp;
+            c.role = c.role || 'frontline';
+            // Recalculate threat for loaded combatants to ensure it's up-to-date with current logic.
+            c.threat = calculateThreat(c);
             // Enforce the correct team assignment on load, overriding any value in the file.
             c.team = team;
             return c;
@@ -86,6 +89,39 @@ class AppState {
         const newIndex = index + direction;
         if (newIndex < 0 || newIndex >= teamArr.length) return;
         [teamArr[index], teamArr[newIndex]] = [teamArr[newIndex], teamArr[index]];
+    }
+
+    copyCombatant(team, id) {
+        const teamArr = team === 'A' ? this.teamA : this.teamB;
+        const originalIndex = teamArr.findIndex(c => c.id === id);
+        if (originalIndex === -1) return;
+
+        const originalCombatant = teamArr[originalIndex];
+        const newCombatant = deepCopy(originalCombatant);
+
+        // Assign a new unique ID
+        newCombatant.id = `c${Date.now()}${Math.random()}`;
+
+        // Handle name duplication by finding the base name and appending the next available number
+        const baseNameMatch = originalCombatant.name.match(/^(.*?)(\s+\d+)?$/);
+        const baseName = baseNameMatch ? baseNameMatch[1] : originalCombatant.name;
+
+        const sameBaseNameCombatants = teamArr.filter(c => c.name.startsWith(baseName));
+        const existingNumbers = sameBaseNameCombatants.map(c => {
+            const nameMatch = c.name.match(/\s+(\d+)$/);
+            return nameMatch ? parseInt(nameMatch[1]) : 1;
+        });
+
+        const nextNumber = Math.max(0, ...existingNumbers) + 1;
+        newCombatant.name = `${baseName} ${nextNumber}`;
+
+        // If the original was the only one and had no number, rename it to "Name 1"
+        if (sameBaseNameCombatants.length === 1 && !/\s+\d+$/.test(originalCombatant.name)) {
+            originalCombatant.name = `${baseName} 1`;
+        }
+
+        // Insert the new combatant right after the original for better UX
+        teamArr.splice(originalIndex + 1, 0, newCombatant);
     }
 
     clearEditorState() {

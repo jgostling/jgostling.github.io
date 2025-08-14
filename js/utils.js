@@ -71,3 +71,52 @@ function rollDice(diceNotation, options = {}) {
     });
     return total;
 }
+
+function calculateAverageDamage(damageNotation) {
+    if (!damageNotation || typeof damageNotation !== 'string') return 0;
+    let total = 0;
+    damageNotation.split('+').forEach(part => {
+        if (part.includes('d')) {
+            const [numStr, sidesStr] = part.split('d');
+            const num = parseInt(numStr) || 1;
+            const sides = parseInt(sidesStr);
+            if (isNaN(num) || isNaN(sides)) return;
+            // Average of one die is (sides + 1) / 2
+            total += num * ((sides + 1) / 2);
+        } else {
+            total += Number(part);
+        }
+    });
+    return total;
+}
+
+function calculateThreat(combatant) {
+    if (!combatant.attacks || combatant.attacks.length === 0) return 1;
+
+    let potentialDamage = 0;
+    if (combatant.abilities.multiattack) {
+        const attacks = combatant.abilities.multiattack.split(';');
+        attacks.forEach(attackString => {
+            const [count, name] = attackString.split('/');
+            const action = combatant.attacks.find(a => a.name.toLowerCase() === name.toLowerCase().trim());
+            if (action && action.damage) {
+                potentialDamage += calculateAverageDamage(action.damage) * parseInt(count);
+            }
+        });
+    } else {
+        combatant.attacks.forEach(action => {
+            if (action.damage) {
+                // Account for actions that can hit multiple targets (e.g., Fireball)
+                const numTargets = parseInt(action.targets) || 1;
+                const actionThreat = calculateAverageDamage(action.damage) * numTargets;
+                potentialDamage = Math.max(potentialDamage, actionThreat);
+            }
+        });
+    }
+
+    if (combatant.abilities.sneak_attack) {
+        potentialDamage += calculateAverageDamage(combatant.abilities.sneak_attack);
+    }
+
+    return Math.round(potentialDamage) || 1;
+}
