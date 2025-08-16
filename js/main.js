@@ -55,10 +55,10 @@ function resetAll() {
 }
 
 function handleDelegatedClick(event) {
-    const target = event.target.closest('button[data-action]');
+    const target = event.target.closest('[data-action]');
     if (!target) return;
 
-    const { action, team, id, direction, tab, index } = target.dataset;
+    const { action, team, id, direction, tab, index, key } = target.dataset;
 
     switch (action) {
         case 'switch-tab':
@@ -84,6 +84,18 @@ function handleDelegatedClick(event) {
             break;
         case 'open-add-editor':
             openEditorModal(team);
+            break;
+        case 'configure-selected-ability':
+            configureSelectedAbility();
+            break;
+        case 'cancel-ability-config':
+            closeAbilityEditorModal();
+            break;
+        case 'commit-ability':
+            commitAbility(key);
+            break;
+        case 'remove-ability':
+            removeAbilityFromEditor(key);
             break;
         case 'open-action-editor':
             openActionEditorModal();

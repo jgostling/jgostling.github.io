@@ -14,7 +14,15 @@ function getEditorHTML() {
     const init_mod = data.initiative_mod || 0;
     const saves = data.saves || { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 };
     const spell_slots = data.spell_slots || { 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0 };
-    const abilities = (data.abilities ? Object.entries(data.abilities).map(([k,v]) => v === true ? k : `${k}:${v}`).join(', ') : '');
+
+    const currentAbilities = data.abilities ? Object.keys(data.abilities) : [];
+    const availableAbilities = Object.entries(ABILITIES_LIBRARY)
+        .filter(([key]) => !currentAbilities.includes(key))
+        .sort(([, a], [, b]) => a.name.localeCompare(b.name));
+    
+    const abilityOptions = availableAbilities.map(([key, ability]) => 
+        `<option value="${key}">${ability.name}</option>`
+    ).join('');
 
     return `
         <h3 class="font-semibold text-lg mb-2 text-white">${isEditing ? `Editing ${name}` : `Add Combatant to Team ${team}`}</h3>
@@ -57,7 +65,16 @@ function getEditorHTML() {
         </div>
 
         <div id="tab-${prefix}-abilities" class="tab-content">
-            <textarea id="abilities-${prefix}" rows="4" placeholder="Comma separated keywords. e.g.&#10;pack_tactics, divine_smite" class="form-input w-full font-mono text-sm">${abilities}</textarea>
+            <div class="flex gap-2 items-center">
+                <select id="ability-select" class="form-select flex-grow">
+                    <option value="">-- Select an Ability --</option>
+                    ${abilityOptions}
+                </select>
+                <button data-action="configure-selected-ability" class="btn btn-secondary">Add</button>
+            </div>
+            <div id="ability-list-container" class="mt-4 space-y-2 max-h-64 overflow-y-auto p-1">
+                ${renderAbilityListHTML(data.abilities || {})}
+            </div>
         </div>
 
         <div class="flex gap-4 mt-4">
@@ -82,6 +99,29 @@ function renderActionListHTML(actions) {
                 <div class="flex gap-2"><button data-action="edit-action" data-index="${index}" class="btn btn-secondary p-1 text-xs">Edit</button><button data-action="remove-action" data-index="${index}" class="btn btn-danger p-1 text-xs">Remove</button></div>
             </div>
         `;
+    }).join('');
+}
+
+function renderAbilityListHTML(abilities) {
+    if (!abilities || Object.keys(abilities).length === 0) {
+        return '<p class="text-gray-400 text-center py-4">No abilities defined.</p>';
+    }
+    return Object.entries(abilities).map(([key, value]) => {
+        const abilityInfo = ABILITIES_LIBRARY[key];
+        if (!abilityInfo) return ''; // Skip unknown abilities
+
+        let valueDisplay = '';
+        if (value === true) {
+            valueDisplay = 'Enabled';
+        } else if (typeof value === 'string' || typeof value === 'number') {
+            valueDisplay = `Value: <span class="font-mono text-yellow-300">${value}</span>`;
+        }
+
+        return `
+            <div class="bg-gray-800 p-2 rounded-md flex justify-between items-center">
+                <div><p class="font-semibold text-white">${abilityInfo.name}</p><p class="text-xs text-gray-400">${valueDisplay}</p></div>
+                <div class="flex gap-2"><button data-action="remove-ability" data-key="${key}" class="btn btn-danger p-1 text-xs">Remove</button></div>
+            </div>`;
     }).join('');
 }
 
@@ -242,6 +282,103 @@ function closeActionEditorModal() {
     document.getElementById('action-editor-modal-content').innerHTML = '';
 }
 
+function renderAbilityConfigScreen(abilityKey) {
+    const ability = ABILITIES_LIBRARY[abilityKey];
+    if (!ability) {
+        console.error(`Ability with key ${abilityKey} not found in library.`);
+        closeAbilityEditorModal();
+        return;
+    }
+
+    let inputHTML = '';
+    const inputId = 'ability-config-value';
+
+    switch (ability.valueType) {
+        case 'number':
+            inputHTML = `<label for="${inputId}" class="block font-semibold mb-1">${ability.name} Value</label>
+                         <input type="number" id="${inputId}" placeholder="${ability.placeholder || ''}" class="form-input w-full">`;
+            break;
+        case 'dice':
+        case 'string':
+            inputHTML = `<label for="${inputId}" class="block font-semibold mb-1">${ability.name} Value</label>
+                         <input type="text" id="${inputId}" placeholder="${ability.placeholder || ''}" class="form-input w-full">`;
+            break;
+        case 'boolean':
+            // No input needed, the presence of the ability is enough.
+            inputHTML = `<p class="text-gray-400 italic">This ability doesn't require a specific value.</p>`;
+            break;
+    }
+
+    const modalHTML = `
+        <h3 class="font-semibold text-lg mb-2 text-white">Configure: ${ability.name}</h3>
+        <p class="text-sm text-gray-400 mb-4">${ability.description}</p>
+        
+        <div class="mb-4">
+            ${inputHTML}
+        </div>
+
+        <div class="flex justify-end gap-4 mt-6">
+            <button data-action="commit-ability" data-key="${abilityKey}" class="btn btn-primary">Save Ability</button>
+            <button data-action="cancel-ability-config" class="btn btn-secondary">Back to List</button>
+        </div>
+    `;
+    document.getElementById('ability-editor-modal-content').innerHTML = modalHTML;
+}
+
+function closeAbilityEditorModal() {
+    document.getElementById('ability-editor-modal-overlay').classList.add('hidden');
+    document.getElementById('ability-editor-modal').classList.add('hidden');
+    document.getElementById('ability-editor-modal-content').innerHTML = '';
+}
+
+function configureSelectedAbility() {
+    const select = document.getElementById('ability-select');
+    const abilityKey = select.value;
+    if (abilityKey) {
+        renderAbilityConfigScreen(abilityKey);
+        document.getElementById('ability-editor-modal-overlay').classList.remove('hidden');
+        document.getElementById('ability-editor-modal').classList.remove('hidden');
+    }
+}
+
+function commitAbility(key) {
+    const { combatant } = appState.getEditorState();
+    const ability = ABILITIES_LIBRARY[key];
+    if (!combatant || !ability) {
+        console.error("Error committing ability.");
+        closeAbilityEditorModal();
+        return;
+    }
+
+    let value = true;
+    if (ability.valueType !== 'boolean') {
+        const input = document.getElementById('ability-config-value');
+        value = ability.valueType === 'number' ? parseInt(input.value, 10) : input.value;
+        if (ability.valueType === 'number' && isNaN(value)) {
+            alert(`Please enter a valid number for ${ability.name}.`);
+            return;
+        }
+        if (!value && value !== 0) {
+            alert(`Please enter a value for ${ability.name}.`);
+            return;
+        }
+    }
+
+    combatant.abilities[key] = value;
+    document.getElementById('editor-modal-content').innerHTML = getEditorHTML();
+    switchTab('modal', 'abilities');
+    closeAbilityEditorModal();
+}
+
+function removeAbilityFromEditor(key) {
+    const { combatant } = appState.getEditorState();
+    if (combatant && combatant.abilities && combatant.abilities.hasOwnProperty(key)) {
+        delete combatant.abilities[key];
+        document.getElementById('editor-modal-content').innerHTML = getEditorHTML();
+        switchTab('modal', 'abilities');
+    }
+}
+
 function commitAction() {
     const newAction = readActionFromForm();
     const { combatant } = appState.getEditorState();
@@ -385,13 +522,15 @@ function renderTeams() {
 
 function renderCombatantCard(c, team) {
     const roleDisplay = (c.role || 'frontline').charAt(0).toUpperCase() + (c.role || 'frontline').slice(1);
-    const abilities = c.abilities ? Object.keys(c.abilities).join(', ') : 'None';
+    const abilityNames = c.abilities && Object.keys(c.abilities).length > 0 
+        ? Object.keys(c.abilities).map(key => ABILITIES_LIBRARY[key]?.name || key).join(', ') 
+        : 'None';
     return `
         <div class="bg-gray-700 p-3 rounded-md flex justify-between items-center">
             <div>
                 <p class="font-bold text-white">${c.name} <span class="text-xs text-gray-400">(${roleDisplay}, ${c.size})</span></p>
                 <p class="text-sm text-gray-300">HP: ${c.hp}, AC: ${c.ac}, Init: ${c.initiative_mod >= 0 ? '+' : ''}${c.initiative_mod}, Threat: ${c.threat || 1}</p>
-                <p class="text-xs text-gray-400">Abilities: ${abilities}</p>
+                <p class="text-xs text-gray-400">Abilities: ${abilityNames}</p>
             </div>
             <div class="flex gap-1">
                 <button data-action="move-combatant" data-team="${team}" data-id="${c.id}" data-direction="-1" class="btn btn-secondary p-1 text-xs">▲</button>

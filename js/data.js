@@ -30,12 +30,8 @@ function readCombatantFromForm(team, existingId = null) {
     // we preserve the existing attacks from the editor's state.
     const { combatant: editorCombatant } = appState.getEditorState();
     combatant.attacks = editorCombatant ? deepCopy(editorCombatant.attacks) : [];
-
-    const abilitiesText = document.getElementById(`abilities-${prefix}`).value;
-    abilitiesText.split(',').map(s => s.trim().toLowerCase()).filter(s => s).forEach(ability => {
-        const [key, value] = ability.split(':').map(s => s.trim());
-        combatant.abilities[key] = value || true;
-    });
+    // Preserve abilities as well until the new UI is fully implemented.
+    combatant.abilities = editorCombatant ? deepCopy(editorCombatant.abilities) : {};
 
     combatant.threat = calculateThreat(combatant);
 
