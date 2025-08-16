@@ -93,26 +93,41 @@ function calculateAverageDamage(damageNotation) {
 function calculateThreat(combatant) {
     if (!combatant.attacks || combatant.attacks.length === 0) return 1;
 
-    let potentialDamage = 0;
+    let mainActionDamage = 0;
+    let bonusActionDamage = 0;
+
     if (combatant.abilities.multiattack) {
         const attacks = combatant.abilities.multiattack.split(';');
         attacks.forEach(attackString => {
             const [count, name] = attackString.split('/');
             const action = combatant.attacks.find(a => a.name.toLowerCase() === name.toLowerCase().trim());
             if (action && action.damage) {
-                potentialDamage += calculateAverageDamage(action.damage) * parseInt(count);
+                mainActionDamage += calculateAverageDamage(action.damage) * parseInt(count);
             }
         });
     } else {
-        combatant.attacks.forEach(action => {
-            if (action.damage) {
-                // Account for actions that can hit multiple targets (e.g., Fireball)
+        // Find the best single main action
+        const mainActions = combatant.attacks.filter(a => (a.action || 'action') === 'action' && a.damage);
+        if (mainActions.length > 0) {
+            const threats = mainActions.map(action => {
                 const numTargets = parseInt(action.targets) || 1;
-                const actionThreat = calculateAverageDamage(action.damage) * numTargets;
-                potentialDamage = Math.max(potentialDamage, actionThreat);
-            }
-        });
+                return calculateAverageDamage(action.damage) * numTargets;
+            });
+            mainActionDamage = Math.max(0, ...threats);
+        }
     }
+
+    // Find the best bonus action, which can be used in addition to the main action
+    const bonusActions = combatant.attacks.filter(a => a.action === 'bonus_action' && a.damage);
+    if (bonusActions.length > 0) {
+        const threats = bonusActions.map(action => {
+            const numTargets = parseInt(action.targets) || 1;
+            return calculateAverageDamage(action.damage) * numTargets;
+        });
+        bonusActionDamage = Math.max(0, ...threats);
+    }
+
+    let potentialDamage = mainActionDamage + bonusActionDamage;
 
     if (combatant.abilities.sneak_attack) {
         potentialDamage += calculateAverageDamage(combatant.abilities.sneak_attack);

@@ -457,15 +457,25 @@ function chooseAction(attacker, actionType, context) {
                     score = 90; // Base score for a useful buff
                 }
             } else { // Harmful effect
+                const numActionTargets = parseInt(action.targets) || 1;
                 const possibleTargets = getValidTargets(attacker, action, context);
                 // Only cast if there are opponents who don't already have the effect
                 const validTargets = possibleTargets.filter(opp => !hasCondition(opp, action.effect.name));
-                if (validTargets.length > 0) {
+                
+                // Only consider this action if there are enough valid targets
+                if (validTargets.length >= numActionTargets) {
                     score = 85; // Base score for a useful debuff
                 }
             }
         } else if (action.damage) {
-            score = rollDice(action.damage);
+            const numActionTargets = parseInt(action.targets) || 1;
+            const possibleTargets = getValidTargets(attacker, action, context);
+
+            // Only consider this action if there are enough targets
+            if (possibleTargets.length >= numActionTargets) {
+                // Score based on average damage potential, not a random roll
+                score = calculateAverageDamage(action.damage) * numActionTargets;
+            }
         }
 
         if (score > bestScore) {

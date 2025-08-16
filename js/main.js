@@ -58,7 +58,7 @@ function handleDelegatedClick(event) {
     const target = event.target.closest('button[data-action]');
     if (!target) return;
 
-    const { action, team, id, direction, tab } = target.dataset;
+    const { action, team, id, direction, tab, index } = target.dataset;
 
     switch (action) {
         case 'switch-tab':
@@ -85,6 +85,36 @@ function handleDelegatedClick(event) {
         case 'open-add-editor':
             openEditorModal(team);
             break;
+        case 'open-action-editor':
+            openActionEditorModal();
+            break;
+        case 'edit-action':
+            openActionEditorModal(index);
+            break;
+        case 'remove-action':
+            removeActionFromEditor(index);
+            break;
+        case 'cancel-action-edit':
+            closeActionEditorModal();
+            break;
+        case 'commit-action':
+            commitAction();
+            break;
+        case 'toggle-accordion': {
+            const clickedItem = target.closest('.accordion-item');
+            const wasActive = clickedItem.classList.contains('active');
+
+            // Close all accordion items within the same modal
+            const allItems = document.querySelectorAll('#action-editor-modal .accordion-item');
+            allItems.forEach(item => item.classList.remove('active'));
+
+            // If the clicked item was not already active, open it.
+            // This ensures only one is open at a time.
+            if (!wasActive) {
+                clickedItem.classList.add('active');
+            }
+            break;
+        }
         case 'save-team':
             saveTeam(team);
             break;

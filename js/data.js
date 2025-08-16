@@ -25,9 +25,12 @@ function readCombatantFromForm(team, existingId = null) {
         combatant.spell_slots[s] = parseInt(document.getElementById(`slot-${s}-${prefix}`).value) || 0;
     });
 
-    const attacksText = document.getElementById(`attacks-${prefix}`).value;
-    combatant.attacks = attacksText.split('\n').filter(l => l.trim()).map(l => parseAction(l));
-    
+    // This part is now handled by the action editor modal.
+    // To prevent data loss during an edit before the new modal is fully implemented,
+    // we preserve the existing attacks from the editor's state.
+    const { combatant: editorCombatant } = appState.getEditorState();
+    combatant.attacks = editorCombatant ? deepCopy(editorCombatant.attacks) : [];
+
     const abilitiesText = document.getElementById(`abilities-${prefix}`).value;
     abilitiesText.split(',').map(s => s.trim().toLowerCase()).filter(s => s).forEach(ability => {
         const [key, value] = ability.split(':').map(s => s.trim());
@@ -39,47 +42,61 @@ function readCombatantFromForm(team, existingId = null) {
     return combatant;
 }
 
-function parseAction(line) {
-    const action = { action: 'action' };
-    line.split(',').forEach(part => {
-        const [key, ...valParts] = part.split(':');
-        const value = valParts.join(':').trim();
-        const keyTrim = key.trim();
-        
-        if (keyTrim === 'spell') action.spellLevel = parseInt(value);
-        else if (keyTrim === 'save') {
-            const [dc, type] = value.split('/');
-            action.save = { dc: parseInt(dc), type: type.trim() };
-        }
-        else if (keyTrim === 'uses') {
-            const [val, per] = value.split('/');
-            action.uses = { max: parseInt(val), per: per || 'combat' };
-        }
-        else if (keyTrim === 'effect') {
-            const [name, duration] = value.split('/');
-            action.effect = { name: name.trim(), duration: parseInt(duration) || 10 };
-        }
-        else if (keyTrim === 'heavy' || keyTrim === 'ranged') {
-            action[keyTrim] = true;
-        }
-        else if (keyTrim === 'targeting' && ['self', 'other', 'any'].includes(value)) {
-            action[keyTrim] = value;
-        }
-        else action[keyTrim] = value;
-    });
-    return action;
-}
+function readActionFromForm() {
+    const action = {};
 
-function stringifyAction(action) {
-    return Object.entries(action).map(([key, value]) => {
-        if (key === 'spellLevel') return `spell:${value}`;
-        if (key === 'save' && value) return `save:${value.dc}/${value.type}`;
-        if (key === 'uses' && value) return `uses:${value.max}/${value.per}`;
-        if (key === 'effect' && value) return `effect:${value.name}/${value.duration}`;
-        if (key === 'heavy' && value === true) return 'heavy';
-        if (key === 'ranged' && value === true) return 'ranged';
-        if (key === 'targeting' && value && value !== 'any') return `targeting:${value}`;
-        if (value && typeof value !== 'boolean') return `${key}:${value}`;
-        return null;
-    }).filter(Boolean).join(', ');
+    const getValue = (id) => document.getElementById(id)?.value.trim() || null;
+    const getInt = (id) => {
+        const val = parseInt(document.getElementById(id)?.value, 10);
+        return isNaN(val) ? null : val;
+    };
+    const getChecked = (id) => document.getElementById(id)?.checked || false;
+
+    action.name = getValue('action-editor-name') || 'Unnamed Action';
+    action.action = getValue('action-editor-action');
+
+    const toHit = getInt('action-editor-toHit');
+    if (toHit !== null) action.toHit = toHit;
+
+    const damage = getValue('action-editor-damage');
+    if (damage) action.damage = damage;
+
+    const type = getValue('action-editor-type');
+    if (type) action.type = type;
+
+    if (getChecked('action-editor-ranged')) action.ranged = true;
+    if (getChecked('action-editor-heavy')) action.heavy = true;
+
+    const saveDc = getInt('action-editor-save-dc');
+    const saveType = getValue('action-editor-save-type');
+    if (saveDc !== null && saveType) {
+        action.save = { dc: saveDc, type: saveType };
+        if (getChecked('action-editor-half')) action.half = true;
+    }
+
+    const heal = getValue('action-editor-heal');
+    if (heal) action.heal = heal;
+
+    const effectName = getValue('action-editor-effect-name');
+    const effectDuration = getInt('action-editor-effect-duration');
+    if (effectName && effectDuration !== null) {
+        action.effect = { name: effectName, duration: effectDuration };
+    }
+
+    const usesMax = getInt('action-editor-uses-max');
+    const usesPer = getValue('action-editor-uses-per');
+    if (usesMax !== null && usesPer) {
+        action.uses = { max: usesMax, per: usesPer };
+    }
+
+    const spellLevel = getInt('action-editor-spellLevel');
+    if (spellLevel !== null) action.spellLevel = spellLevel;
+
+    const targets = getInt('action-editor-targets');
+    if (targets !== null) action.targets = targets;
+
+    const targeting = getValue('action-editor-targeting');
+    if (targeting && targeting !== 'any') action.targeting = targeting;
+
+    return action;
 }

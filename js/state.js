@@ -9,6 +9,11 @@ class AppState {
             team: null,      // 'A' or 'B'
             isEditing: false // true if updating, false if adding
         };
+        this.actionEditorState = {
+            action: null, // The action object being edited
+            index: -1,    // The index of the action in the combatant's attacks array. -1 for new.
+            isNew: true
+        };
     }
 
     getTeams() {
@@ -17,6 +22,10 @@ class AppState {
 
     getEditorState() {
         return this.editorState;
+    }
+
+    getActionEditorState() {
+        return this.actionEditorState;
     }
 
     openEditorForUpdate(team, id) {
@@ -32,7 +41,36 @@ class AppState {
     }
 
     openEditorForAdd(team) {
-        this.editorState = { combatant: null, team: team, isEditing: false };
+        this.editorState = {
+            combatant: {
+                // Provide a blank template to hold data while the editor is open
+                attacks: [],
+                abilities: {},
+                saves: { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 },
+                spell_slots: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0 }
+            },
+            team: team,
+            isEditing: false
+        };
+    }
+
+    openActionEditorForNew() {
+        this.actionEditorState = {
+            action: { name: '', action: 'action' }, // A default blank action object
+            index: -1,
+            isNew: true
+        };
+    }
+
+    openActionEditorForUpdate(index) {
+        const combatant = this.editorState.combatant;
+        if (combatant && combatant.attacks[index]) {
+            this.actionEditorState = {
+                action: deepCopy(combatant.attacks[index]),
+                index: parseInt(index),
+                isNew: false
+            };
+        }
     }
 
     setTeam(team, combatants) {
@@ -128,10 +166,15 @@ class AppState {
         this.editorState = { combatant: null, team: null, isEditing: false };
     }
 
+    clearActionEditorState() {
+        this.actionEditorState = { action: null, index: -1, isNew: true };
+    }
+
     reset() {
         this.teamA = [];
         this.teamB = [];
         this.clearEditorState();
+        this.clearActionEditorState();
     }
 }
 
