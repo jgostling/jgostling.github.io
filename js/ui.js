@@ -1,5 +1,14 @@
 // js/ui.js
 
+function _getTooltipHTML(text) {
+    return `
+        <span class="tooltip-container">
+            <span class="tooltip-icon" data-action="toggle-tooltip">?</span>
+            <span class="tooltip-box">${text}</span>
+        </span>
+    `;
+}
+
 function getEditorHTML() {
     const { combatant, team, isEditing } = appState.getEditorState();
     const data = combatant || {};
@@ -37,11 +46,20 @@ function getEditorHTML() {
         <div id="tab-${prefix}-stats" class="tab-content active space-y-4">
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <input type="text" id="name-${prefix}" placeholder="Name" class="form-input col-span-2 sm:col-span-1" value="${name}">
-                <input type="text" id="type-${prefix}" placeholder="Type (e.g. fiend)" class="form-input" value="${type}">
+                <div class="flex items-center">
+                    <input type="text" id="type-${prefix}" placeholder="Type (e.g. fiend)" class="form-input w-full" value="${type}">
+                    ${_getTooltipHTML('Creature type, e.g., "fiend" or "undead". This can interact with certain abilities like Divine Smite.')}
+                </div>
                 <input type="number" id="hp-${prefix}" placeholder="HP" class="form-input" value="${hp}">
                 <input type="number" id="ac-${prefix}" placeholder="AC" class="form-input" value="${ac}">
                 <select id="size-${prefix}" class="form-select">${sizeOrder.map(s => `<option value="${s}" ${s === size ? 'selected' : ''}>${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}</select>
-                <select id="role-${prefix}" class="form-select"><option value="frontline" ${role === 'frontline' ? 'selected' : ''}>Frontline</option><option value="backline" ${role === 'backline' ? 'selected' : ''}>Backline</option></select>
+                <div class="flex items-center">
+                    <select id="role-${prefix}" class="form-select w-full">
+                        <option value="frontline" ${role === 'frontline' ? 'selected' : ''}>Frontline</option>
+                        <option value="backline" ${role === 'backline' ? 'selected' : ''}>Backline</option>
+                    </select>
+                    ${_getTooltipHTML('Determines targeting priority. Melee attackers must target available "Frontline" combatants before "Backline" ones.')}
+                </div>
                 <input type="number" id="init_mod-${prefix}" placeholder="Init Mod" class="form-input" value="${init_mod}">
                 <input type="number" id="count-${prefix}" placeholder="Count" value="1" class="form-input" ${isEditing ? 'disabled' : ''}>
             </div>
@@ -71,6 +89,9 @@ function getEditorHTML() {
                     ${abilityOptions}
                 </select>
                 <button data-action="configure-selected-ability" class="btn btn-secondary">Add</button>
+            </div>
+            <div id="ability-description-container" class="ability-description mt-3 p-2 bg-gray-900 rounded-md">
+                <!-- Description will be injected here -->
             </div>
             <div id="ability-list-container" class="mt-4 space-y-2 max-h-64 overflow-y-auto p-1">
                 ${renderAbilityListHTML(data.abilities || {})}
@@ -141,6 +162,9 @@ function openEditorModal(team, id = null) {
     document.getElementById('editor-modal-content').innerHTML = getEditorHTML();
     document.getElementById('editor-modal-overlay').classList.remove('hidden');
     document.getElementById('editor-modal').classList.remove('hidden');
+    // Add listener for the new abilities dropdown
+    document.getElementById('ability-select').addEventListener('change', updateAbilityDescription);
+    updateAbilityDescription(); // Set initial state for the description
 }
 
 function closeEditorModal() {
@@ -152,43 +176,108 @@ function closeEditorModal() {
 }
 
 function openActionEditorModal(index = null) {
+    let formHTML;
     if (index !== null) {
+        // Editing an existing action - determine which form to show
         appState.openActionEditorForUpdate(index);
-    } else {
-        appState.openActionEditorForNew();
-    }
+        const { action, isNew } = appState.getActionEditorState();
 
-    const { action, isNew } = appState.getActionEditorState();
-    const formHTML = getActionEditorFormHTML(action, isNew);
+        if (action.toHit) {
+            formHTML = getAttackActionFormHTML(action, isNew);
+        } else if (action.save) {
+            formHTML = getSaveActionFormHTML(action, isNew);
+        } else if (action.heal) {
+            formHTML = getHealActionFormHTML(action, isNew);
+        } else { // Default to the effect form if no other primary type is identified
+            formHTML = getEffectActionFormHTML(action, isNew);
+        }
+    } else {
+        // Creating a new action - show the wizard selection screen.
+        appState.openActionEditorForNew();
+        formHTML = getActionWizardSelectionHTML();
+    }
 
     document.getElementById('action-editor-modal-content').innerHTML = formHTML;
     document.getElementById('action-editor-modal-overlay').classList.remove('hidden');
     document.getElementById('action-editor-modal').classList.remove('hidden');
 }
 
-function getActionEditorFormHTML(action, isNew) {
-    const saveTypes = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
+function getActionWizardSelectionHTML() {
+    return `
+        <h3 class="font-semibold text-lg mb-4 text-white">New Action: What kind of action is it?</h3>
+        <p class="text-sm text-gray-400 mb-6">Choose the primary purpose of this action. This will determine which options are available.</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <button class="wizard-choice-card" data-action="select-action-type" data-type="attack"><h4 class="font-semibold text-white">Make an Attack Roll</h4><p class="text-xs text-gray-400">Actions that use a 'To Hit' roll against a target's AC. (e.g., Sword, Fire Bolt)</p></button>
+            <button class="wizard-choice-card" data-action="select-action-type" data-type="save"><h4 class="font-semibold text-white">Force a Saving Throw</h4><p class="text-xs text-gray-400">Actions that force a target to make a saving throw against your DC. (e.g., Fireball, Poison Spray)</p></button>
+            <button class="wizard-choice-card" data-action="select-action-type" data-type="heal"><h4 class="font-semibold text-white">Provide Healing</h4><p class="text-xs text-gray-400">Actions that restore hit points to a target. (e.g., Cure Wounds, Healing Word)</p></button>
+            <button class="wizard-choice-card" data-action="select-action-type" data-type="effect"><h4 class="font-semibold text-white">Apply an Effect</h4><p class="text-xs text-gray-400">Actions that apply a condition or other effect without direct damage or healing. (e.g., Bless, Bane)</p></button>
+        </div>
+        <div class="flex justify-end mt-6"><button data-action="cancel-action-edit" class="btn btn-secondary">Cancel</button></div>
+    `;
+}
+
+function _getSharedActionFormAccordionsHTML(action) {
     const actionTypes = ['action', 'bonus_action', 'reaction'];
     const usePeriods = ['combat', 'round', 'turn'];
     const targetingTypes = ['any', 'self', 'other'];
 
     return `
-        <h3 class="font-semibold text-lg mb-4 text-white">${isNew ? 'Add New Action' : `Editing: ${action.name}`}</h3>
-        
-        <div class="space-y-2">
-            <!-- Core Details -->
-            <div class="accordion-item active">
-                <button type="button" class="accordion-header" data-action="toggle-accordion">Core Details</button>
-                <div class="accordion-content">
-                    <div class="p-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <input type="text" id="action-editor-name" placeholder="Action Name" class="form-input" value="${action.name || ''}">
-                        <select id="action-editor-action" class="form-select">
-                            ${actionTypes.map(t => `<option value="${t}" ${action.action === t ? 'selected' : ''}>${t.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</option>`).join('')}
+        <h4 class="action-form-section-header">General Properties</h4>
+        <!-- Core Details -->
+        <div class="accordion-item active">
+            <button type="button" class="accordion-header" data-action="toggle-accordion">Core Details</button>
+            <div class="accordion-content">
+                <div class="p-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <input type="text" id="action-editor-name" placeholder="Action Name" class="form-input" value="${action.name || ''}">
+                    <select id="action-editor-action" class="form-select">
+                        ${actionTypes.map(t => `<option value="${t}" ${action.action === t ? 'selected' : ''}>${t.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+        </div>
+        <!-- Usage Limit Properties -->
+        <div class="accordion-item">
+            <button type="button" class="accordion-header" data-action="toggle-accordion">
+                <span class="flex items-center">
+                    Usage Limits
+                    ${_getTooltipHTML('Limit how many times this action can be used per combat, round, or turn.')}
+                </span>
+            </button>
+            <div class="accordion-content">
+                <div class="p-3 grid grid-cols-2 gap-4">
+                    <input type="number" id="action-editor-uses-max" placeholder="Max Uses" class="form-input" value="${action.uses?.max || ''}">
+                    <select id="action-editor-uses-per" class="form-select">
+                        <option value="">Use Period</option>
+                        ${usePeriods.map(p => `<option value="${p}" ${action.uses?.per === p ? 'selected' : ''}>Per ${p.charAt(0).toUpperCase() + p.slice(1)}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+        </div>
+        <!-- General Spell/Effect Properties -->
+        <div class="accordion-item">
+            <button type="button" class="accordion-header" data-action="toggle-accordion">General</button>
+            <div class="accordion-content">
+                <div class="p-3 grid grid-cols-2 sm:grid-cols-3 gap-4">
+                    <input type="number" id="action-editor-spellLevel" placeholder="Spell Level (0-9)" class="form-input" value="${action.spellLevel || ''}">
+                    <input type="number" id="action-editor-targets" placeholder="# of Targets" class="form-input" value="${action.targets || ''}">
+                    <div class="flex items-center">
+                        <select id="action-editor-targeting" class="form-select w-full">
+                            ${targetingTypes.map(t => `<option value="${t}" ${action.targeting === t ? 'selected' : ''}>${t.charAt(0).toUpperCase() + t.slice(1)}</option>`).join('')}
                         </select>
+                        ${_getTooltipHTML('Determines who can be targeted. "Self" only targets the caster. "Other" targets allies but not self. "Any" can target anyone.')}
                     </div>
                 </div>
             </div>
-            
+        </div>
+    `;
+}
+
+function getAttackActionFormHTML(action, isNew) {
+    return `
+        <h3 class="font-semibold text-lg mb-4 text-white">${isNew ? 'New Attack Action' : `Editing: ${action.name}`}</h3>
+        <div class="space-y-2">
+            ${_getSharedActionFormAccordionsHTML(action)}
+            <h4 class="action-form-section-header mt-4">Action-Specific Properties</h4>
             <!-- Attack Properties -->
             <div class="accordion-item">
                 <button type="button" class="accordion-header" data-action="toggle-accordion">Attack</button>
@@ -202,7 +291,36 @@ function getActionEditorFormHTML(action, isNew) {
                     </div>
                 </div>
             </div>
+            <!-- Effect Properties (Optional) -->
+            <div class="accordion-item">
+                <button type="button" class="accordion-header" data-action="toggle-accordion">
+                    <span class="flex items-center">
+                        Effect on Hit
+                        ${_getTooltipHTML('Optionally apply a status effect if the attack hits. The effect name must match a defined condition in the simulation logic (e.g., "poisoned").')}
+                    </span>
+                </button>
+                <div class="accordion-content">
+                    <div class="p-3 grid grid-cols-2 gap-4">
+                        <input type="text" id="action-editor-effect-name" placeholder="Effect Name (e.g. poisoned)" class="form-input" value="${action.effect?.name || ''}">
+                        <input type="number" id="action-editor-effect-duration" placeholder="Duration (rounds)" class="form-input" value="${action.effect?.duration || ''}">
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="flex gap-4 mt-6">
+            <button data-action="commit-action" class="btn btn-primary flex-grow">Save Action</button>
+            <button data-action="cancel-action-edit" class="btn btn-secondary">Cancel</button>
+        </div>
+    `;
+}
 
+function getSaveActionFormHTML(action, isNew) {
+    const saveTypes = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
+    return `
+        <h3 class="font-semibold text-lg mb-4 text-white">${isNew ? 'New Saving Throw Action' : `Editing: ${action.name}`}</h3>
+        <div class="space-y-2">
+            ${_getSharedActionFormAccordionsHTML(action)}
+            <h4 class="action-form-section-header mt-4">Action-Specific Properties</h4>
             <!-- Save-based Effect Properties -->
             <div class="accordion-item">
                 <button type="button" class="accordion-header" data-action="toggle-accordion">Saving Throw</button>
@@ -213,11 +331,47 @@ function getActionEditorFormHTML(action, isNew) {
                             <option value="">Save Type</option>
                             ${saveTypes.map(t => `<option value="${t}" ${action.save?.type === t ? 'selected' : ''}>${t.toUpperCase()}</option>`).join('')}
                         </select>
-                        <div class="flex items-center gap-2"><input type="checkbox" id="action-editor-half" class="form-checkbox" ${action.half ? 'checked' : ''}><label for="action-editor-half">Half damage on save</label></div>
+                        <div class="flex items-center gap-2 col-span-2 sm:col-span-1">
+                            <input type="checkbox" id="action-editor-half" class="form-checkbox" ${action.half ? 'checked' : ''}>
+                            <div class="flex items-center">
+                                <label for="action-editor-half">Half damage on save</label>
+                                ${_getTooltipHTML('If checked, a successful save results in the target taking half of the rolled damage.')}
+                            </div>
+                        </div>
+                        <input type="text" id="action-editor-damage" placeholder="Damage (e.g. 8d6)" class="form-input col-span-2" value="${action.damage || ''}">
+                        <input type="text" id="action-editor-type" placeholder="Damage Type" class="form-input" value="${action.type || ''}">
                     </div>
                 </div>
             </div>
+            <!-- Effect Properties (Optional) -->
+            <div class="accordion-item">
+                <button type="button" class="accordion-header" data-action="toggle-accordion">
+                    <span class="flex items-center">
+                        Effect on Fail
+                        ${_getTooltipHTML('Optionally apply a status effect to the target if they fail their saving throw.')}
+                    </span>
+                </button>
+                <div class="accordion-content">
+                    <div class="p-3 grid grid-cols-2 gap-4">
+                        <input type="text" id="action-editor-effect-name" placeholder="Effect Name (e.g. poisoned)" class="form-input" value="${action.effect?.name || ''}">
+                        <input type="number" id="action-editor-effect-duration" placeholder="Duration (rounds)" class="form-input" value="${action.effect?.duration || ''}">
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="flex gap-4 mt-6">
+            <button data-action="commit-action" class="btn btn-primary flex-grow">Save Action</button>
+            <button data-action="cancel-action-edit" class="btn btn-secondary">Cancel</button>
+        </div>
+    `;
+}
 
+function getHealActionFormHTML(action, isNew) {
+    return `
+        <h3 class="font-semibold text-lg mb-4 text-white">${isNew ? 'New Healing Action' : `Editing: ${action.name}`}</h3>
+        <div class="space-y-2">
+            ${_getSharedActionFormAccordionsHTML(action)}
+            <h4 class="action-form-section-header mt-4">Action-Specific Properties</h4>
             <!-- Healing Properties -->
             <div class="accordion-item">
                 <button type="button" class="accordion-header" data-action="toggle-accordion">Healing</button>
@@ -227,7 +381,20 @@ function getActionEditorFormHTML(action, isNew) {
                     </div>
                 </div>
             </div>
+        </div>
+        <div class="flex gap-4 mt-6">
+            <button data-action="commit-action" class="btn btn-primary flex-grow">Save Action</button>
+            <button data-action="cancel-action-edit" class="btn btn-secondary">Cancel</button>
+        </div>
+    `;
+}
 
+function getEffectActionFormHTML(action, isNew) {
+    return `
+        <h3 class="font-semibold text-lg mb-4 text-white">${isNew ? 'New Effect Action' : `Editing: ${action.name}`}</h3>
+        <div class="space-y-2">
+            ${_getSharedActionFormAccordionsHTML(action)}
+            <h4 class="action-form-section-header mt-4">Action-Specific Properties</h4>
             <!-- Effect Properties -->
             <div class="accordion-item">
                 <button type="button" class="accordion-header" data-action="toggle-accordion">Effect</button>
@@ -238,36 +405,7 @@ function getActionEditorFormHTML(action, isNew) {
                     </div>
                 </div>
             </div>
-
-            <!-- Usage Limit Properties -->
-            <div class="accordion-item">
-                <button type="button" class="accordion-header" data-action="toggle-accordion">Usage Limits</button>
-                <div class="accordion-content">
-                    <div class="p-3 grid grid-cols-2 gap-4">
-                        <input type="number" id="action-editor-uses-max" placeholder="Max Uses" class="form-input" value="${action.uses?.max || ''}">
-                        <select id="action-editor-uses-per" class="form-select">
-                            <option value="">Use Period</option>
-                            ${usePeriods.map(p => `<option value="${p}" ${action.uses?.per === p ? 'selected' : ''}>Per ${p.charAt(0).toUpperCase() + p.slice(1)}</option>`).join('')}
-                        </select>
-                    </div>
-                </div>
-            </div>
-
-            <!-- General Spell/Effect Properties -->
-            <div class="accordion-item">
-                <button type="button" class="accordion-header" data-action="toggle-accordion">General</button>
-                <div class="accordion-content">
-                    <div class="p-3 grid grid-cols-2 sm:grid-cols-3 gap-4">
-                        <input type="number" id="action-editor-spellLevel" placeholder="Spell Level (0-9)" class="form-input" value="${action.spellLevel || ''}">
-                        <input type="number" id="action-editor-targets" placeholder="# of Targets" class="form-input" value="${action.targets || ''}">
-                        <select id="action-editor-targeting" class="form-select">
-                            ${targetingTypes.map(t => `<option value="${t}" ${action.targeting === t ? 'selected' : ''}>${t.charAt(0).toUpperCase() + t.slice(1)}</option>`).join('')}
-                        </select>
-                    </div>
-                </div>
-            </div>
         </div>
-
         <div class="flex gap-4 mt-6">
             <button data-action="commit-action" class="btn btn-primary flex-grow">Save Action</button>
             <button data-action="cancel-action-edit" class="btn btn-secondary">Cancel</button>
@@ -331,6 +469,34 @@ function closeAbilityEditorModal() {
     document.getElementById('ability-editor-modal-content').innerHTML = '';
 }
 
+function updateAbilityDescription() {
+    const select = document.getElementById('ability-select');
+    const container = document.getElementById('ability-description-container');
+    if (!select || !container) return;
+
+    const selectedKey = select.value;
+
+    if (!selectedKey) {
+        container.innerHTML = '<p class="text-gray-500">Select an ability to see its description.</p>';
+        return;
+    }
+
+    const ability = ABILITIES_LIBRARY[selectedKey];
+    if (ability) {
+        container.innerHTML = ability.description;
+    } else {
+        container.innerHTML = '';
+    }
+}
+
+function _syncEditorFormState() {
+    const { combatant: stateCombatant } = appState.getEditorState();
+    // Read the current values from the form and merge them into the editor's state
+    // to prevent data loss when re-rendering the modal.
+    const currentFormState = readCombatantFromForm('modal', stateCombatant?.id);
+    appState.getEditorState().combatant = currentFormState;
+}
+
 function configureSelectedAbility() {
     const select = document.getElementById('ability-select');
     const abilityKey = select.value;
@@ -342,6 +508,8 @@ function configureSelectedAbility() {
 }
 
 function commitAbility(key) {
+    _syncEditorFormState();
+
     const { combatant } = appState.getEditorState();
     const ability = ABILITIES_LIBRARY[key];
     if (!combatant || !ability) {
@@ -371,6 +539,8 @@ function commitAbility(key) {
 }
 
 function removeAbilityFromEditor(key) {
+    _syncEditorFormState();
+
     const { combatant } = appState.getEditorState();
     if (combatant && combatant.abilities && combatant.abilities.hasOwnProperty(key)) {
         delete combatant.abilities[key];
@@ -529,7 +699,7 @@ function renderCombatantCard(c, team) {
         <div class="bg-gray-700 p-3 rounded-md flex justify-between items-center">
             <div>
                 <p class="font-bold text-white">${c.name} <span class="text-xs text-gray-400">(${roleDisplay}, ${c.size})</span></p>
-                <p class="text-sm text-gray-300">HP: ${c.hp}, AC: ${c.ac}, Init: ${c.initiative_mod >= 0 ? '+' : ''}${c.initiative_mod}, Threat: ${c.threat || 1}</p>
+                <p class="text-sm text-gray-300">HP: ${c.hp}, AC: ${c.ac}, Init: ${c.initiative_mod >= 0 ? '+' : ''}${c.initiative_mod}, Threat: ${c.threat || 1}${_getTooltipHTML("An estimate of the combatant's average damage per round. Used by the AI for target selection.")}</p>
                 <p class="text-xs text-gray-400">Abilities: ${abilityNames}</p>
             </div>
             <div class="flex gap-1">

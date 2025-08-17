@@ -25,12 +25,10 @@ function readCombatantFromForm(team, existingId = null) {
         combatant.spell_slots[s] = parseInt(document.getElementById(`slot-${s}-${prefix}`).value) || 0;
     });
 
-    // This part is now handled by the action editor modal.
-    // To prevent data loss during an edit before the new modal is fully implemented,
-    // we preserve the existing attacks from the editor's state.
+    // Actions and abilities are edited in separate flows. When the main combatant form is saved,
+    // we must preserve the existing attacks and abilities from the editor's state to prevent data loss.
     const { combatant: editorCombatant } = appState.getEditorState();
     combatant.attacks = editorCombatant ? deepCopy(editorCombatant.attacks) : [];
-    // Preserve abilities as well until the new UI is fully implemented.
     combatant.abilities = editorCombatant ? deepCopy(editorCombatant.abilities) : {};
 
     combatant.threat = calculateThreat(combatant);

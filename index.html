@@ -70,48 +70,6 @@
                 </div>
             </div>
         </main>
-
-        <!-- Instructions Sidebar -->
-        <aside id="instructions-sidebar" class="lg:w-96 xl:w-[30rem] flex-shrink-0 card h-full lg:max-h-[85vh] overflow-y-auto">
-            <h2 class="text-2xl title-font font-semibold text-white mb-4 border-b border-gray-700 pb-2">Instructions</h2>
-            <div class="space-y-6 text-gray-300">
-                <div>
-                    <h3 class="font-bold text-lg text-white mb-2">Actions Syntax (Attacks & Spells)</h3>
-                    <p class="text-sm">Use comma-separated `key:value` pairs.</p>
-                    <p class="text-sm bg-gray-800 p-2 rounded-md mt-2 font-mono">
-                        <ul class="space-y-2 mt-3 text-sm">
-                            <li class="bg-gray-800 p-2 rounded-md"><span class="text-green-400">name</span>:Claw, <span class="text-green-400">toHit</span>:3, <span class="text-green-400">damage</span>:1d6+1, <span class="text-green-400">type</span>:slashing <br></li>
-                            <li class="bg-gray-800 p-2 rounded-md"><span class="text-green-400">name</span>:Greatsword, <span class="text-green-400">toHit</span>:5, <span class="text-green-400">damage</span>:2d6+3, <span class="text-green-400">type</span>:slashing, <span class="text-green-400">heavy</span>:true <br></li>
-                            <li class="bg-gray-800 p-2 rounded-md"><span class="text-green-400">name</span>:Shortbow, <span class="text-green-400">toHit</span>:5, <span class="text-green-400">damage</span>:1d6+3, <span class="text-green-400">type</span>:piercing, <span class="text-green-400">ranged</span>:true <br></li>
-                            <li class="bg-gray-800 p-2 rounded-md"><span class="text-green-400">name</span>:Fireball, <span class="text-green-400">spell</span>:3, <span class="text-green-400">save</span>:15/dex, <span class="text-green-400">damage</span>:8d6, <span class="text-green-400">targets</span>:3, <span class="text-green-400">half</span>:true, <span class="text-green-400">targets</span>:4 <br></li>
-                            <li class="bg-gray-800 p-2 rounded-md"><span class="text-green-400">name</span>:Sacred Flame, <span class="text-green-400">spell</span>:0, <span class="text-green-400">save</span>:13/dex, <span class="text-green-400">damage</span>:1d8, <span class="text-green-400">type</span>:radiant <br></li>
-                            <li class="bg-gray-800 p-2 rounded-md"><span class="text-green-400">name</span>:Cure Wounds, <span class="text-green-400">spell</span>:1, <span class="text-green-400">heal</span>:1d8+3 <br></li>
-                            <li class="bg-gray-800 p-2 rounded-md"><span class="text-green-400">name</span>:Bless, <span class="text-green-400">spell</span>:1, <span class="text-green-400">effect</span>:blessed/10, <span class="text-green-400">targets</span>:3</li>
-                        </ul>
-                    </p>
-                </div>
-                <div>
-                    <h3 class="font-bold text-lg text-white mb-2">Abilities & Feats Keywords</h3>
-                    <p class="text-sm">Add keywords in the "Abilities" tab, separated by commas.</p>
-                    <ul class="space-y-2 mt-3 text-sm">
-                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">multiattack:2/Claw;1/Bite</p><p class="text-xs mt-1">Performs a sequence of attacks. Use semicolons to separate attacks.</p></li>
-                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">legendary_resistance:3</p><p class="text-xs mt-1">Can choose to succeed on 3 failed saving throws.</p></li>
-                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">magic_resistance</p><p class="text-xs mt-1">Advantage on saves vs. spells and magical effects.</p></li>
-                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">action_surge:<span class="text-yellow-400">X</span></p><p class="text-xs mt-1">Take an extra action. Can be used X times per combat (defaults to 1).</p></li>
-                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">divine_smite</p><p class="text-xs mt-1">On hit, expend a spell slot to add radiant damage.</p></li>
-                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">great_weapon_master</p><p class="text-xs mt-1">Take -5 to hit for +10 damage on melee attacks.</p></li>
-                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">heavy_armor_master</p><p class="text-xs mt-1">Reduce incoming non-magical physical damage by 3.</p></li>
-                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">lucky</p><p class="text-xs mt-1">Reroll any 1s on d20 rolls.</p></li>
-                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">pack_tactics</p><p class="text-xs mt-1">Gain advantage on attacks if an ally is near the target.</p></li>
-                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">rage:<span class="text-yellow-400">X</span></p><p class="text-xs mt-1">Add X to damage and gain resistance to physical damage.</p></li>
-                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">reckless</p><p class="text-xs mt-1">Gain advantage on attacks, but attacks against you have advantage.</p></li>
-                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">savage_attacker</p><p class="text-xs mt-1">Once per turn, reroll melee weapon damage dice and take higher result.</p></li>
-                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">sharpshooter</p><p class="text-xs mt-1">Take -5 to hit for +10 damage on ranged attacks.</p></li>
-                        <li class="bg-gray-800 p-2 rounded-md"><p class="font-bold font-mono text-white">sneak_attack:<span class="text-yellow-400">XdY</span></p><p class="text-xs mt-1">Once per turn, add XdY damage if you have advantage or an ally is near the target.</p></li>
-                    </ul>
-                </div>
-            </div>
-        </aside>
     </div>
 
     <!-- Editor Modal -->

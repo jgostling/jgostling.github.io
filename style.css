@@ -27,17 +27,17 @@ p {
 }
 
 /* === Custom Scrollbar === */
-#simulation-log::-webkit-scrollbar, #instructions-sidebar::-webkit-scrollbar { 
+#simulation-log::-webkit-scrollbar { 
     width: 8px; 
 }
-#simulation-log::-webkit-scrollbar-track, #instructions-sidebar::-webkit-scrollbar-track { 
+#simulation-log::-webkit-scrollbar-track { 
     background: #1f2937;
 }
-#simulation-log::-webkit-scrollbar-thumb, #instructions-sidebar::-webkit-scrollbar-thumb { 
+#simulation-log::-webkit-scrollbar-thumb { 
     background: #4b5563;
     border-radius: 0.25rem;
 }
-#simulation-log::-webkit-scrollbar-thumb:hover, #instructions-sidebar::-webkit-scrollbar-thumb:hover { 
+#simulation-log::-webkit-scrollbar-thumb:hover { 
     background: #6b7280;
 }
 
@@ -128,7 +128,6 @@ p {
 .accordion-item {
     border: 1px solid #374151;
     border-radius: 0.375rem;
-    overflow: hidden; /* To contain the border-radius on children */
     background-color: #1f2937;
 }
 
@@ -144,7 +143,9 @@ p {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    transition: background-color 0.2s;
+    transition: background-color 0.2s, border-radius 0.1s linear;
+    border-top-left-radius: calc(0.375rem - 1px);
+    border-top-right-radius: calc(0.375rem - 1px);
 }
 
 .accordion-header:hover {
@@ -162,14 +163,110 @@ p {
     content: '−'; /* Using a minus sign */
 }
 
+.accordion-item:not(.active) .accordion-header {
+    border-bottom-left-radius: calc(0.375rem - 1px);
+    border-bottom-right-radius: calc(0.375rem - 1px);
+}
+
 .accordion-content {
     max-height: 0;
     overflow: hidden;
     transition: max-height 0.3s ease-out;
+    border-bottom-left-radius: calc(0.375rem - 1px);
+    border-bottom-right-radius: calc(0.375rem - 1px);
 }
 
 .accordion-item.active .accordion-content {
     max-height: 500px; /* A large enough value to show content */
+    /* Allow tooltips inside the content to be visible when open */
+    overflow: visible;
+}
+
+/* === Wizard Styles === */
+.wizard-choice-card {
+    background-color: #374151;
+    border: 1px solid #4b5563;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    text-align: left;
+    width: 100%;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+.wizard-choice-card:hover {
+    background-color: #4b5563;
+    border-color: #6b7280;
+}
+.wizard-choice-card h4 {
+    margin-bottom: 0.25rem;
+}
+
+.action-form-section-header {
+    font-size: 0.875rem; /* text-sm */
+    font-weight: 600; /* font-semibold */
+    text-transform: uppercase;
+    color: #9ca3af; /* text-gray-400 */
+    letter-spacing: 0.05em; /* tracking-wider */
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #374151;
+}
+
+.ability-description {
+    min-height: 4rem; /* Enough for about 2-3 lines of text */
+    transition: all 0.2s;
+    color: #d1d5db; /* text-gray-300 */
+}
+
+/* === Tooltip Styles === */
+.tooltip-container {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    margin-left: 0.25rem;
+}
+
+.tooltip-icon {
+    width: 1rem;
+    height: 1rem;
+    border-radius: 50%;
+    background-color: #4b5563;
+    color: #d1d5db;
+    font-size: 0.75rem;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s;
+}
+
+.tooltip-icon:hover {
+    background-color: #6b7280;
+}
+
+.tooltip-box {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 0.375rem); /* 6px above the icon */
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #111827;
+    border: 1px solid #4b5563;
+    border-radius: 0.375rem;
+    padding: 0.75rem;
+    width: max-content;
+    max-width: 250px;
+    z-index: 100;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    text-align: left;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    overflow-wrap: break-word;
+}
+
+.tooltip-box.active {
+    display: block;
 }
 
 /* === Modal Styles === */

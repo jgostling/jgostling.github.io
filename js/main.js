@@ -54,11 +54,21 @@ function resetAll() {
     }
 }
 
+function closeAllTooltips() {
+    document.querySelectorAll('.tooltip-box.active').forEach(box => {
+        box.classList.remove('active');
+        // Clean up any inline styles that were added for positioning
+        box.style.left = '';
+        box.style.right = '';
+        box.style.transform = '';
+    });
+}
+
 function handleDelegatedClick(event) {
     const target = event.target.closest('[data-action]');
     if (!target) return;
 
-    const { action, team, id, direction, tab, index, key } = target.dataset;
+    const { action, team, id, direction, tab, index, key, type } = target.dataset;
 
     switch (action) {
         case 'switch-tab':
@@ -103,6 +113,28 @@ function handleDelegatedClick(event) {
         case 'edit-action':
             openActionEditorModal(index);
             break;
+        case 'select-action-type': {
+            const { action: currentAction, isNew } = appState.getActionEditorState();
+            let formHTML;
+            switch (type) {
+                case 'attack':
+                    formHTML = getAttackActionFormHTML(currentAction, isNew);
+                    break;
+                case 'save':
+                    formHTML = getSaveActionFormHTML(currentAction, isNew);
+                    break;
+                case 'heal':
+                    formHTML = getHealActionFormHTML(currentAction, isNew);
+                    break;
+                case 'effect':
+                    formHTML = getEffectActionFormHTML(currentAction, isNew);
+                    break;
+            }
+            if (formHTML) {
+                document.getElementById('action-editor-modal-content').innerHTML = formHTML;
+            }
+            break;
+        }
         case 'remove-action':
             removeActionFromEditor(index);
             break;
@@ -116,14 +148,47 @@ function handleDelegatedClick(event) {
             const clickedItem = target.closest('.accordion-item');
             const wasActive = clickedItem.classList.contains('active');
 
-            // Close all accordion items within the same modal
-            const allItems = document.querySelectorAll('#action-editor-modal .accordion-item');
+            // This logic allows only one accordion to be open at a time within a given modal.
+            // It finds all siblings and closes them.
+            const allItems = clickedItem.parentElement.querySelectorAll('.accordion-item');
             allItems.forEach(item => item.classList.remove('active'));
 
             // If the clicked item was not already active, open it.
-            // This ensures only one is open at a time.
             if (!wasActive) {
                 clickedItem.classList.add('active');
+            }
+            break;
+        }
+        case 'toggle-tooltip': {
+            const container = target.closest('.tooltip-container');
+            if (container) {
+                const box = container.querySelector('.tooltip-box');
+                const wasActive = box.classList.contains('active');
+
+                // Close all tooltips first (this also cleans them up)
+                closeAllTooltips();
+
+                // If it wasn't active before, open it and position it
+                if (!wasActive) {
+                    box.classList.add('active');
+
+                    const iconRect = container.getBoundingClientRect();
+                    const boxRect = box.getBoundingClientRect();
+                    const viewportWidth = window.innerWidth;
+                    const PADDING = 8; // 8px padding from screen edge
+
+                    // Check for overflow and adjust
+                    if (boxRect.left < PADDING) {
+                        // Overflows on the left
+                        box.style.left = `${PADDING}px`;
+                        box.style.transform = 'translateX(0)';
+                    } else if (boxRect.right > viewportWidth - PADDING) {
+                        // Overflows on the right
+                        box.style.left = 'auto';
+                        box.style.right = `${PADDING}px`;
+                        box.style.transform = 'translateX(0)';
+                    }
+                }
             }
             break;
         }
@@ -140,6 +205,13 @@ function initializeApp() {
     document.getElementById('run-button').addEventListener('click', runBatchSimulations);
     document.getElementById('reset-button').addEventListener('click', resetAll);
     document.body.addEventListener('click', handleDelegatedClick);
+
+    // Add a global click listener to close tooltips when clicking outside
+    document.addEventListener('click', (event) => {
+        if (!event.target.closest('[data-action="toggle-tooltip"]')) {
+            closeAllTooltips();
+        }
+    });
 
     renderTeams();
 }
