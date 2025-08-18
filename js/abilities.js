@@ -15,6 +15,12 @@ const ABILITIES_LIBRARY = {
         description: "Once per turn, reroll melee weapon damage and use the higher result.",
         valueType: 'boolean'
     },
+    extra_crit_dice: {
+        name: "Extra Critical Damage Dice",
+        description: "On a critical hit with a melee weapon attack, roll additional weapon damage dice. Used for Savage Attacks (1) and Brutal Critical (1-3).",
+        valueType: 'number',
+        placeholder: 'e.g., 1'
+    },
     sneak_attack: {
         name: "Sneak Attack",
         description: "Once per turn, add extra damage when you have advantage or an ally is within 5ft of the target.",
@@ -47,7 +53,77 @@ const ABILITIES_LIBRARY = {
     magic_resistance: {
         name: "Magic Resistance",
         description: "Advantage on saving throws against spells and other magical effects.",
-        valueType: 'boolean'
+        valueType: 'boolean',
+        rules: {
+            saveAdvantage: [{
+                sourceType: ['magical']
+            }]
+        }
+    },
+    gnome_cunning: {
+        name: "Gnome Cunning",
+        description: "Advantage on Intelligence, Wisdom, and Charisma saving throws against magic.",
+        valueType: 'boolean',
+        rules: {
+            saveAdvantage: [{
+                on: ['int', 'wis', 'cha'],
+                sourceType: ['magical']
+            }]
+        }
+    },
+    dwarven_resilience: {
+        name: "Dwarven Resilience",
+        description: "Advantage on saving throws against poison, and resistance against poison damage.",
+        valueType: 'boolean',
+        rules: {
+            saveAdvantage: [{
+                vs: ['poison', 'poisoned'] // Catches poison damage and the poisoned condition
+            }]
+        },
+        // This new property will be read by the damage calculation logic.
+        grantsResistance: ['poison']
+    },
+    stout_resilience: {
+        name: "Stout Resilience",
+        description: "Advantage on saving throws against poison, and resistance against poison damage.",
+        valueType: 'boolean',
+        rules: {
+            saveAdvantage: [{
+                vs: ['poison', 'poisoned'] // Catches poison damage and the poisoned condition
+            }]
+        },
+        // This new property will be read by the damage calculation logic.
+        grantsResistance: ['poison']
+    },
+    fey_ancestry: {
+        name: "Fey Ancestry",
+        description: "Advantage on saving throws against being charmed.",
+        valueType: 'boolean',
+        rules: {
+            saveAdvantage: [{
+                vs: ['charmed'] // This is a condition name
+            }]
+        }
+    },
+    brave: {
+        name: "Brave",
+        description: "Advantage on saving throws against being frightened.",
+        valueType: 'boolean',
+        rules: {
+            saveAdvantage: [{
+                vs: ['frightened']
+            }]
+        }
+    },
+    danger_sense: {
+        name: "Danger Sense",
+        description: "Advantage on Dexterity saving throws against effects that you can see. (Simplified for simulator)",
+        valueType: 'boolean',
+        rules: {
+            saveAdvantage: [{
+                on: ['dex']
+            }]
+        }
     },
     legendary_resistance: {
         name: "Legendary Resistance",
@@ -79,7 +155,7 @@ const ABILITIES_LIBRARY = {
         placeholder: 'e.g., 1'
     },
     lucky: {
-        name: "Lucky",
+        name: "Lucky (Halfling)",
         description: "Reroll any 1s on d20 rolls (attack rolls, ability checks, saving throws).",
         valueType: 'boolean'
     },

@@ -257,14 +257,21 @@ function _getSharedActionFormAccordionsHTML(action) {
         <div class="accordion-item">
             <button type="button" class="accordion-header" data-action="toggle-accordion">General</button>
             <div class="accordion-content">
-                <div class="p-3 grid grid-cols-2 sm:grid-cols-3 gap-4">
-                    <input type="number" id="action-editor-spellLevel" placeholder="Spell Level (0-9)" class="form-input" value="${action.spellLevel || ''}">
-                    <input type="number" id="action-editor-targets" placeholder="# of Targets" class="form-input" value="${action.targets || ''}">
-                    <div class="flex items-center">
-                        <select id="action-editor-targeting" class="form-select w-full">
-                            ${targetingTypes.map(t => `<option value="${t}" ${action.targeting === t ? 'selected' : ''}>${t.charAt(0).toUpperCase() + t.slice(1)}</option>`).join('')}
-                        </select>
-                        ${_getTooltipHTML('Determines who can be targeted. "Self" only targets the caster. "Other" targets allies but not self. "Any" can target anyone.')}
+                <div class="p-3">
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                        <input type="number" id="action-editor-spellLevel" placeholder="Spell Level (0-9)" class="form-input" value="${action.spellLevel || ''}">
+                        <input type="number" id="action-editor-targets" placeholder="# of Targets" class="form-input" value="${action.targets || ''}">
+                        <div class="flex items-center">
+                            <select id="action-editor-targeting" class="form-select w-full">
+                                ${targetingTypes.map(t => `<option value="${t}" ${action.targeting === t ? 'selected' : ''}>${t.charAt(0).toUpperCase() + t.slice(1)}</option>`).join('')}
+                            </select>
+                            ${_getTooltipHTML('Determines who can be targeted. "Self" only targets the caster. "Other" targets allies but not self. "Any" can target anyone.')}
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 mt-4">
+                        <input type="checkbox" id="action-editor-isMagical" class="form-checkbox" ${action.isMagical ? 'checked' : ''}>
+                        <label for="action-editor-isMagical">Is this a magical effect?</label>
+                        ${_getTooltipHTML('Check this if the action is a spell or creates a magical effect. This is important for abilities like Magic Resistance or Gnome Cunning.')}
                     </div>
                 </div>
             </div>

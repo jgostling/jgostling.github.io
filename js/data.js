@@ -1,5 +1,7 @@
 // js/data.js
 
+const sizeOrder = ['tiny', 'small', 'medium', 'large', 'huge', 'gargantuan'];
+
 function readCombatantFromForm(team, existingId = null) {
     const prefix = team.toLowerCase();
     const combatant = {
@@ -91,6 +93,8 @@ function readActionFromForm() {
 
     const targeting = getValue('action-editor-targeting');
     if (targeting && targeting !== 'any') action.targeting = targeting;
+
+    if (getChecked('action-editor-isMagical')) action.isMagical = true;
 
     return action;
 }

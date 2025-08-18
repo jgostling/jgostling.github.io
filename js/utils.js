@@ -135,3 +135,65 @@ function calculateThreat(combatant) {
 
     return Math.round(potentialDamage) || 1;
 }
+
+/**
+ * Gathers and consolidates all mechanical effects from a combatant's active conditions.
+ * This function recursively processes conditions and their 'includes' properties.
+ * @param {object} combatant - The combatant instance from the simulation.
+ * @returns {object} A consolidated object of all active effects.
+ */
+function getConditionEffects(combatant) {
+    const allEffects = {
+        disadvantageOn: [],
+        autoFailSaves: [],
+        cannot: []
+        // Other effects will be added dynamically
+    };
+    const processedConditions = new Set();
+    const conditionQueue = [...(combatant.status.conditions.map(c => c.name))];
+
+    while (conditionQueue.length > 0) {
+        const conditionName = conditionQueue.shift();
+        if (!conditionName || processedConditions.has(conditionName)) continue;
+
+        processedConditions.add(conditionName);
+        const conditionDef = CONDITIONS_LIBRARY[conditionName];
+        if (!conditionDef) continue;
+
+        // Merge effects from the current condition
+        if (conditionDef.effects) {
+            for (const [key, value] of Object.entries(conditionDef.effects)) {
+                if (Array.isArray(value)) {
+                    allEffects[key] = [...new Set([...(allEffects[key] || []), ...value])];
+                } else if (allEffects[key] === undefined) {
+                    allEffects[key] = value;
+                }
+            }
+        }
+
+        // Add included conditions to the queue to be processed
+        if (conditionDef.includes) conditionQueue.push(...conditionDef.includes);
+    }
+    return allEffects;
+}
+
+/**
+ * Checks if one combatant can see another, considering conditions like blinded and invisible.
+ * @param {object} viewer - The combatant who is looking.
+ * @param {object} target - The combatant being looked at.
+ * @returns {boolean} True if the viewer can see the target, false otherwise.
+ */
+function canSee(viewer, target) {
+    const viewerEffects = getConditionEffects(viewer);
+    if (viewerEffects.isBlinded) {
+        return false;
+    }
+
+    const targetEffects = getConditionEffects(target);
+    if (targetEffects.isInvisible) {
+        // Future enhancement: check if viewer has a counter like See Invisibility or Truesight.
+        return false;
+    }
+
+    return true;
+}

@@ -1,7 +1,5 @@
 // js/main.js
 
-const sizeOrder = ['tiny', 'small', 'medium', 'large', 'huge', 'gargantuan'];
-
 function runBatchSimulations() {
     const runButton = document.getElementById('run-button');
     runButton.disabled = true;
