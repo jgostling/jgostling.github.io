@@ -179,4 +179,4 @@ class AppState {
 }
 
 // Export a single instance to be used throughout the app
-const appState = new AppState();
+var appState = new AppState();

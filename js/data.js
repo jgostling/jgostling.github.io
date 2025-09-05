@@ -1,11 +1,15 @@
 // js/data.js
 
-const sizeOrder = ['tiny', 'small', 'medium', 'large', 'huge', 'gargantuan'];
+var sizeOrder = ['tiny', 'small', 'medium', 'large', 'huge', 'gargantuan'];
+var DAMAGE_TYPES = [
+    'acid', 'bludgeoning', 'cold', 'fire', 'force', 'lightning', 
+    'necrotic', 'piercing', 'poison', 'psychic', 'radiant', 'slashing', 'thunder'
+].sort();
 
-function readCombatantFromForm(team, existingId = null) {
-    const prefix = team.toLowerCase();
+function readCombatantFromForm(existingId = null) {
+    const prefix = 'modal';
     const combatant = {
-        id: existingId || `c${Date.now()}${Math.random()}`,
+        id: existingId,
         name: document.getElementById(`name-${prefix}`).value || 'Combatant',
         hp: parseInt(document.getElementById(`hp-${prefix}`).value) || 10,
         ac: parseInt(document.getElementById(`ac-${prefix}`).value) || 10,
@@ -95,6 +99,30 @@ function readActionFromForm() {
     if (targeting && targeting !== 'any') action.targeting = targeting;
 
     if (getChecked('action-editor-isMagical')) action.isMagical = true;
+
+    // Multiattack properties
+    const multiattackContainer = document.querySelector('[data-cy="multiattack-options"]');
+    if (multiattackContainer) {
+        action.multiattack = [];
+        const checkboxes = multiattackContainer.querySelectorAll('input[type="checkbox"][data-sub-action-name]');
+        checkboxes.forEach(checkbox => {
+            if (checkbox.checked) {
+                const name = checkbox.dataset.subActionName;
+                const countInput = multiattackContainer.querySelector(`input[type="number"][data-sub-action-count="${name}"]`);
+                const count = parseInt(countInput.value, 10) || 1;
+                action.multiattack.push({ name, count });
+            }
+        });
+    }
+
+    // Pool Heal properties
+    const poolName = getValue('action-editor-pool-select');
+    const poolHealAmount = getInt('action-editor-pool-heal-amount');
+    if (poolName && poolHealAmount !== null) {
+        action.type = 'pool_heal';
+        action.poolName = poolName;
+        action.amount = poolHealAmount;
+    }
 
     return action;
 }

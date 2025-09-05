@@ -1,19 +1,35 @@
 // js/simulation.js
 
-let log;
+var log;
 
 function setupCombatant(c) {
+    const status = {
+        usedBonusAction: false, usedAction: false,
+        isRaging: false, usedRelentless: false, usedSneakAttack: false,
+        usedSavageAttacker: false, canMakeGWMAttack: false,
+        actionUses: {}, spellSlots: deepCopy(c.spell_slots || {}),
+        conditions: [], legendaryResistances: parseInt(c.abilities?.legendary_resistance) || 0,
+        actionSurgeUses: c.abilities?.action_surge ? (parseInt(c.abilities.action_surge, 10) || 1) : 0,
+        isReckless: false, loggedCharmMessageThisTurn: false, isDodging: false,
+        abilities: {} // This will hold the state of abilities, like resource pools.
+    };
+
+    // Find any abilities that are resource pools and initialize their state.
+    for (const key in c.abilities) {
+        const ability = c.abilities[key];
+        if (typeof ability === 'object' && ability.pool !== undefined) {
+            status.abilities[key] = deepCopy(ability); // e.g. { pool: 5 }
+            // For lookups, ensure the canonical name from the library is also in the status object.
+            // This allows the simulation logic to find pools by name without depending on the global library.
+            if (ABILITIES_LIBRARY[key]) {
+                status.abilities[key].name = ABILITIES_LIBRARY[key].name;
+            }
+        }
+    }
+
     return {
         ...deepCopy(c),
-        status: {
-            usedBonusAction: false, usedAction: false,
-            isRaging: false, usedRelentless: false, usedSneakAttack: false,
-            usedSavageAttacker: false, canMakeGWMAttack: false,
-            actionUses: {}, spellSlots: deepCopy(c.spell_slots),
-            conditions: [], legendaryResistances: parseInt(c.abilities.legendary_resistance) || 0,
-            actionSurgeUses: c.abilities.action_surge ? (parseInt(c.abilities.action_surge, 10) || 1) : 0,
-            isReckless: false, loggedCharmMessageThisTurn: false, isDodging: false,
-        }
+        status
     };
 }
 
@@ -35,12 +51,19 @@ function getContext(combatant, allCombatants) {
 }
 
 function hasCondition(c, name) {
-    return c.status.conditions.some(cond => cond.name === name);
+    return !!(c.status && c.status.conditions && c.status.conditions.some(cond => cond.name === name));
 }
 
 function applyDamage(target, damage, type, isMagical = false) {
+    if (!type) {
+        throw new Error('applyDamage was called without a damage type.');
+    }
+    const typeLower = type.toLowerCase();
+    if (!DAMAGE_TYPES.includes(typeLower)) {
+        throw new Error(`applyDamage was called with an invalid damage type: '${type}'`);
+    }
+
     let finalDamage = damage;
-    const typeLower = (type || 'physical').toLowerCase();
     const isPhysical = ['slashing', 'piercing', 'bludgeoning'].includes(typeLower);
     const effects = getConditionEffects(target);
 
@@ -174,9 +197,10 @@ function makeSavingThrow(target, dc, saveType, sourceAction = {}) {
 
     let total = rollResult.roll + (target.saves[saveType] || 0);
     let logBonuses = [];
-    if (isBlessed) logBonuses.push(` +${rollResult.blessBonus}[bless]`);
-    if (isBaned) logBonuses.push(` -${rollResult.banePenalty}[bane]`);
-    log(`${target.name} rolls a ${saveType.toUpperCase()} save: ${rollResult.rawRoll} + ${target.saves[saveType] || 0} ${logBonuses.join(' ')} = ${total} vs DC ${dc}`, 2);
+    if (isBlessed) logBonuses.push(`+${rollResult.blessBonus}[bless]`);
+    if (isBaned) logBonuses.push(`-${rollResult.banePenalty}[bane]`);
+    const logBonusStr = logBonuses.length > 0 ? ` ${logBonuses.join(' ')}` : '';
+    log(`${target.name} rolls a ${saveType.toUpperCase()} save: ${rollResult.rawRoll} + ${target.saves[saveType] || 0}${logBonusStr} = ${total} vs DC ${dc}`, 2);
     
     if (total < dc && target.status.legendaryResistances > 0) {
         target.status.legendaryResistances--;
@@ -427,7 +451,7 @@ function performAttackAction(attacker, target, action, context) {
             }
         }
 
-        const finalDamage = applyDamage(target, baseDamage, action.type, action.spellLevel > 0);
+        const finalDamage = applyDamage(target, baseDamage, action.type, !!action.isMagical);
         log(`<span class="text-green-400">Hits</span> for <span class="font-bold text-yellow-300">${finalDamage}</span> damage (${damageBreakdown.join(' + ')}). ${target.name} HP: ${target.hp}`, 2);
         
         // Apply effect on hit
@@ -468,7 +492,7 @@ function performSaveAction(attacker, action, context, targets) {
             // Handle damage on fail
             if (action.damage) {
                 const damage = rollDice(action.damage);
-                const finalDamage = applyDamage(target, damage, action.type, action.spellLevel > 0);
+                const finalDamage = applyDamage(target, damage, action.type, !!action.isMagical);
                 log(`Takes ${finalDamage} damage.`, 3);
             }
             // Handle effect on fail
@@ -487,7 +511,7 @@ function performSaveAction(attacker, action, context, targets) {
         } else { // Successful save
             if (action.half && action.damage) {
                 const damage = Math.floor(rollDice(action.damage) / 2);
-                const finalDamage = applyDamage(target, damage, action.type, action.spellLevel > 0);
+                const finalDamage = applyDamage(target, damage, action.type, !!action.isMagical);
                 log(`Target saves, but takes ${finalDamage} damage.`, 2);
             } else {
                 log(`Target saves, no effect.`, 2);
@@ -527,13 +551,75 @@ function performHealAction(attacker, action, context) {
     }
 }
 
+function _findPoolAbility(attacker, poolName) {
+    // Find the stateful ability in the attacker's status object by its name.
+    // This relies on setupCombatant having already populated the name.
+    for (const key in attacker.status.abilities) {
+        const abilityState = attacker.status.abilities[key];
+        if (abilityState.pool !== undefined && abilityState.name === poolName) {
+            return abilityState;
+        }
+    }
+    return null;
+}
+
+function performPoolHealAction(attacker, action, context) {
+    const poolAbility = _findPoolAbility(attacker, action.poolName);
+
+    if (!poolAbility || poolAbility.pool <= 0) {
+        log(`${attacker.name} tries to use ${action.name}, but has no points left in the pool.`, 1);
+        return;
+    }
+
+    // 2. Find the most wounded ally to heal, respecting the action's targeting.
+    let potentialTargets = [];
+    const targeting = action.targeting || 'any';
+    const allPossibleAllies = [...context.allies, ...(context.downedAllies || [])];
+
+    if (targeting === 'self') {
+        potentialTargets = [attacker];
+    } else if (targeting === 'other') {
+        potentialTargets = allPossibleAllies.filter(a => a.id !== attacker.id);
+    } else { // 'any'
+        potentialTargets = allPossibleAllies;
+    }
+
+    const injuredTargets = potentialTargets.filter(a => a.hp < a.maxHp).sort((a, b) => a.hp - b.hp);
+
+    if (injuredTargets.length === 0) {
+        log(`${attacker.name} tries to use ${action.name}, but there are no valid targets to heal.`, 1);
+        return;
+    }
+    if (injuredTargets.length === 0) {
+        log(`${attacker.name} tries to use ${action.name}, but there are no valid targets to heal.`, 1);
+        return;
+    }
+    const target = injuredTargets[0];
+
+    // 3. Determine the actual amount to heal, capped by the pool, the action's amount, and the target's missing HP.
+    const missingHp = target.maxHp - target.hp;
+    const amountToHeal = Math.min(action.amount, poolAbility.pool, missingHp);
+
+    if (amountToHeal <= 0) {
+        log(`${attacker.name} tries to use ${action.name}, but ${target.name} is already at full health.`, 1);
+        return;
+    }
+
+    // 4. Apply healing, deplete the pool, and log the action.
+    target.hp += amountToHeal;
+    poolAbility.pool -= amountToHeal;
+
+    log(`${attacker.name} uses ${action.name} to heal ${target.name} for ${amountToHeal} HP. (${poolAbility.pool} points remaining)`, 1);
+}
+
 function performEffectAction(attacker, action, context) {
     const targeting = action.targeting || 'any';
     const numTargets = parseInt(action.targets) || 1;
     let potentialTargets = [];
 
     // Determine if the effect is beneficial (targets allies) or harmful (targets opponents)
-    const isBeneficial = action.effect.name === 'blessed'; // This could be expanded later
+    const effectDef = CONDITIONS_LIBRARY[action.effect.name];
+    const isBeneficial = effectDef?.type === 'beneficial';
 
     if (isBeneficial) {
         if (targeting === 'self') {
@@ -556,6 +642,13 @@ function performEffectAction(attacker, action, context) {
 
     log(`${attacker.name} casts ${action.name}, affecting ${targets.map(t=>t.name).join(', ')}.`, 1);
     targets.forEach(t => {
+        const targetEffects = getConditionEffects(t);
+        const immunities = [...((t.abilities.immunity || '').split(',')), ...(targetEffects.immunityTo || [])].filter(Boolean);
+        if (immunities.includes(action.effect.name)) {
+            log(`${t.name} is immune to the ${action.effect.name} condition.`, 2);
+            return; // Skip to the next target
+        }
+
         const newCondition = deepCopy(action.effect);
         newCondition.sourceId = attacker.id;
         t.status.conditions.push(newCondition);
@@ -586,7 +679,7 @@ function performAction(attacker, action, context) {
         downedAllies: allKnownAllies.filter(c => c.hp === 0)
     };
 
-    if (freshContext.opponents.length === 0 && !action.heal && !action.effect) return;
+    if (freshContext.opponents.length === 0 && !action.heal && action.type !== 'pool_heal' && !action.effect) return;
 
     // The order of this if/else chain is critical.
     // We check for primary action mechanisms (attack, save) first, as they can also include effects.
@@ -613,6 +706,8 @@ function performAction(attacker, action, context) {
             }
             performSaveAction(attacker, action, freshContext, targets);
         }
+    } else if (action.type === 'pool_heal') {
+        performPoolHealAction(attacker, action, freshContext);
     } else if (action.heal) {
         performHealAction(attacker, action, freshContext);
     } else if (action.effect) {
@@ -621,31 +716,43 @@ function performAction(attacker, action, context) {
     }
 }
 
-function chooseAction(attacker, actionType, context) {
-    const possibleActions = attacker.attacks.filter(a => {
-        const type = a.action || 'action';
-        if (type !== actionType) return false;
-        const useKey = a.name.replace(/\s+/g, '_');
-        if (a.uses && (attacker.status.actionUses[useKey] || 0) >= a.uses.max) return false;
-        if (a.spellLevel > 0 && attacker.status.spellSlots[a.spellLevel] <= 0) return false;
-        return true;
-    });
+function _calculateHealScore(potentialTargets) {
+    if (!potentialTargets || potentialTargets.length === 0) {
+        return -1;
+    }
 
-    if (possibleActions.length === 0) return null;
-    
-    let bestAction = null;
-    let bestScore = 0; // Initialize to 0 to ensure only actions with a positive score are chosen.
+    // Only consider healing if there are priority targets (downed or below 50% HP)
+    const priorityTargets = potentialTargets.filter(ally => ally.hp === 0 || ally.hp < ally.maxHp * 0.5);
 
-    for (const action of possibleActions) {
-        // Score is cumulative. An action that does damage and applies an effect is more valuable.
-        let score = 0;
-        const targeting = action.targeting || 'any';
+    if (priorityTargets.length > 0) {
+        const downedTargets = priorityTargets.filter(ally => ally.hp === 0);
+        if (downedTargets.length > 0) {
+            return 500; // Very high priority to bring someone back from 0 HP.
+        } else {
+            // Find the most injured target among the priority targets.
+            const mostInjured = priorityTargets.sort((a, b) => a.hp - b.hp)[0];
+            // High priority for targets below 50% HP.
+            return 100 + (1 - (mostInjured.hp / mostInjured.maxHp)) * 100;
+        }
+    }
 
-        if (action.heal) {
-            let healScore = -1;
+    return -1; // No priority targets to heal.
+}
+
+function getActionScore(action, attacker, context) {
+    let score = 0;
+    const targeting = action.targeting || 'any';
+
+    if (action.heal || action.type === 'pool_heal') {
+        let canHeal = true;
+        if (action.type === 'pool_heal') {
+            const poolAbility = _findPoolAbility(attacker, action.poolName);
+            canHeal = poolAbility && poolAbility.pool > 0;
+        }
+
+        if (canHeal) {
             let potentialTargets = [];
             const allPossibleAllies = [...context.allies, ...(context.downedAllies || [])];
-
             if (targeting === 'self') {
                 potentialTargets = [attacker];
             } else if (targeting === 'other') {
@@ -653,27 +760,17 @@ function chooseAction(attacker, actionType, context) {
             } else { // 'any'
                 potentialTargets = allPossibleAllies;
             }
-
-            // Only consider healing if there are priority targets (downed or below 50% HP)
-            const priorityTargets = potentialTargets.filter(ally => ally.hp === 0 || ally.hp < ally.maxHp * 0.5);
-
-            if (priorityTargets.length > 0) {
-                const downedTargets = priorityTargets.filter(ally => ally.hp === 0);
-                if (downedTargets.length > 0) {
-                    healScore = 500; // Very high priority to bring someone back from 0 HP.
-                } else {
-                    // Find the most injured target among the priority targets.
-                    const mostInjured = priorityTargets.sort((a, b) => a.hp - b.hp)[0];
-                    // High priority for targets below 50% HP.
-                    healScore = 100 + (1 - (mostInjured.hp / mostInjured.maxHp)) * 100;
-                }
-            }
-            score += healScore;
+            score += _calculateHealScore(potentialTargets);
         }
-        
-        if (action.effect) {
-            let effectScore = 0;
-            const isBeneficial = action.effect.name === 'blessed'; // This could be expanded later
+    }
+    
+    if (action.effect) {
+        let effectScore = 0;
+        const effectDef = CONDITIONS_LIBRARY[action.effect.name];
+
+        // Only score the effect if it's a known, valid condition
+        if (effectDef) {
+            const isBeneficial = effectDef.type === 'beneficial';
 
             if (isBeneficial) {
                 let potentialTargets = [];
@@ -700,19 +797,56 @@ function chooseAction(attacker, actionType, context) {
                     effectScore = 85; // Base score for a useful debuff
                 }
             }
-            score += effectScore;
         }
-        
-        if (action.damage) {
-            let damageScore = 0;
-            const numActionTargets = parseInt(action.targets) || 1;
-            const possibleTargets = getValidTargets(attacker, action, context);
+        score += effectScore;
+    }
+    
+    if (action.damage) {
+        let damageScore = 0;
+        const numActionTargets = parseInt(action.targets) || 1;
+        const possibleTargets = getValidTargets(attacker, action, context);
 
-            // Only consider this action if there are enough targets
-            if (possibleTargets.length >= numActionTargets) {
-                damageScore = calculateAverageDamage(action.damage) * numActionTargets;
-            }
-            score += damageScore;
+        // Only consider this action if there are enough targets
+        if (possibleTargets.length >= numActionTargets) {
+            damageScore = calculateAverageDamage(action.damage, attacker) * numActionTargets;
+        }
+        score += damageScore;
+    }
+
+    return score;
+}
+
+function chooseAction(attacker, actionType, context) {
+    const possibleActions = attacker.attacks.filter(a => {
+        const type = a.action || 'action';
+        if (type !== actionType) return false;
+        const useKey = a.name.replace(/\s+/g, '_');
+        if (a.uses && (attacker.status.actionUses[useKey] || 0) >= a.uses.max) return false;
+        if (a.spellLevel > 0 && attacker.status.spellSlots[a.spellLevel] <= 0) return false;
+        return true;
+    });
+
+    if (possibleActions.length === 0) return null;
+    
+    let bestAction = null;
+    let bestScore = 0;
+
+    for (const action of possibleActions) {
+        let score = 0;
+
+        if (action.multiattack) {
+            score = action.multiattack.reduce((totalScore, subActionInfo) => {
+                const subAction = attacker.attacks.find(a => a.name === subActionInfo.name);
+                if (!subAction) return totalScore;
+
+                // Use the new helper function for clean, consistent scoring
+                const subActionScore = getActionScore(subAction, attacker, context);
+                
+                return totalScore + (subActionScore * subActionInfo.count);
+            }, 0);
+        } else {
+            // Use the new helper function for single actions
+            score = getActionScore(action, attacker, context);
         }
 
         if (score > bestScore) {
@@ -803,29 +937,71 @@ function handleAction(attacker, context) {
     }
     
     for(let i = 0; i < turnActions; i++) {
-        if (attacker.abilities.multiattack) {
-            log(`${attacker.name} uses Multiattack!`, 1);
-            const attacks = attacker.abilities.multiattack.split(';');
-            attacks.forEach(attackString => {
-                const [count, name] = attackString.split('/');
-                const action = attacker.attacks.find(a => a.name.toLowerCase() === name.toLowerCase().trim());
-                if (action) {
-                    for (let j = 0; j < parseInt(count); j++) {
-                        performAction(attacker, action, context);
+        const chosenAction = chooseAction(attacker, 'action', context);
+
+        if (chosenAction) {
+            // Check if the chosen action is a Multiattack
+            if (chosenAction.multiattack) {
+                log(`${attacker.name} uses ${chosenAction.name}!`, 1);
+                for (const sub of chosenAction.multiattack) {
+                    const subAction = attacker.attacks.find(a => a.name === sub.name);
+                    if (subAction) {
+                        for (let j = 0; j < sub.count; j++) {
+                            // Check if the attacker can still take actions (e.g., got stunned mid-sequence)
+                            const conditionEffects = getConditionEffects(attacker);
+                            if (conditionEffects.cannot && conditionEffects.cannot.includes('takeActions')) {
+                                log(`${attacker.name} is incapacitated and cannot continue their Multiattack.`, 1);
+                                break; // Break from the inner loop (counts)
+                            }
+                            performAction(attacker, subAction, context);
+                        }
+                    } else {
+                        log(`Error: Sub-action '${sub.name}' not found for ${attacker.name}'s Multiattack.`, 1);
                     }
                 }
-            });
-        } else {
-            const action = chooseAction(attacker, 'action', context);
-            if (action) {
-                performAction(attacker, action, context);
             } else {
-                log(`${attacker.name} cannot find a valid action and takes the Dodge action.`, 1);
-                attacker.status.isDodging = true;
+                // This is a single action
+                performAction(attacker, chosenAction, context);
             }
+        } else {
+            log(`${attacker.name} cannot find a valid action and takes the Dodge action.`, 1);
+            attacker.status.isDodging = true;
         }
     }
     attacker.status.usedAction = true;
+}
+
+function handleRoundStart(allCombatants) {
+    allCombatants.forEach(c => {
+        if (c.hp > 0) {
+            // Reset any abilities that refresh each round.
+            c.attacks.forEach(action => {
+                if (action.uses?.per === 'round') {
+                    c.status.actionUses[action.name.replace(/\s+/g, '_')] = 0;
+                }
+            });
+        }
+    });
+}
+
+function executeTurn(attacker, allCombatants) {
+    if (attacker.hp <= 0) return;
+
+    handleTurnStart(attacker);
+
+    // Check for turn-skipping conditions after handling start-of-turn effects
+    const effects = getConditionEffects(attacker);
+    if (effects.cannot?.includes('takeActions')) {
+        const conditionNames = attacker.status.conditions.map(c => c.name).join(', ');
+        log(`${attacker.name} is incapacitated by ${conditionNames} and cannot take actions.`, 1);
+        return; // Skip to the next combatant
+    }
+
+    const context = getContext(attacker, allCombatants);
+
+    handlePreActionBonusActions(attacker, context);
+    handleAction(attacker, context);
+    handlePostActionBonusActions(attacker, context);
 }
 
 function runSingleSimulation(teamA, teamB, logActions = false) {
@@ -849,35 +1025,12 @@ function runSingleSimulation(teamA, teamB, logActions = false) {
     let round = 1;
     while (round < 100) {
         log(`<br><span class="text-lg font-bold text-gray-400">--- Round ${round} ---</span>`);
-
-        allCombatants.forEach(c => {
-            if (c.hp > 0) {
-                c.attacks.forEach(action => {
-                    if (action.uses?.per === 'round') {
-                        c.status.actionUses[action.name.replace(/\s+/g, '_')] = 0;
-                    }
-                });
-            }
-        });
+        handleRoundStart(allCombatants);
 
         for (const attacker of allCombatants) {
-            if (attacker.hp <= 0) continue;
-
-            handleTurnStart(attacker);
-
-            // Check for turn-skipping conditions after handling start-of-turn effects
-            const effects = getConditionEffects(attacker);
-            if (effects.cannot?.includes('takeActions')) {
-                const conditionNames = attacker.status.conditions.map(c => c.name).join(', ');
-                log(`${attacker.name} is incapacitated by ${conditionNames} and cannot take actions.`, 1);
-                continue; // Skip to the next combatant
-            }
-
-            const context = getContext(attacker, allCombatants);
-
-            handlePreActionBonusActions(attacker, context);
-            handleAction(attacker, context);
-            handlePostActionBonusActions(attacker, context);
+            // The turn logic is now encapsulated in its own function.
+            // We still need to check for victory conditions after each turn.
+            executeTurn(attacker, allCombatants);
 
             const teamAliveA = combatantsA.some(c => c.hp > 0);
             const teamAliveB = combatantsB.some(c => c.hp > 0);

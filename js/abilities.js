@@ -1,4 +1,4 @@
-const ABILITIES_LIBRARY = {
+var ABILITIES_LIBRARY = {
     // Offensive
     great_weapon_master: {
         name: "Great Weapon Master",
@@ -37,12 +37,6 @@ const ABILITIES_LIBRARY = {
         name: "Divine Smite",
         description: "When you hit with a melee attack, you can expend a spell slot to deal extra radiant damage.",
         valueType: 'boolean'
-    },
-    multiattack: {
-        name: "Multiattack",
-        description: "Take a sequence of attacks as a single action.",
-        valueType: 'string',
-        placeholder: 'e.g., 2/Claw;1/Bite'
     },
     // Defensive
     heavy_armor_master: {
@@ -153,6 +147,12 @@ const ABILITIES_LIBRARY = {
         description: "Take one additional action on your turn.",
         valueType: 'number',
         placeholder: 'e.g., 1'
+    },
+    lay_on_hands: {
+        name: "Lay on Hands",
+        description: "Heal a creature by drawing from a pool of hit points.",
+        valueType: 'pool',
+        placeholder: 'e.g., 5'
     },
     lucky: {
         name: "Lucky (Halfling)",

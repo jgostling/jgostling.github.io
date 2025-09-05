@@ -1,4 +1,4 @@
-const CONDITIONS_LIBRARY = {
+var CONDITIONS_LIBRARY = {
     // Core Conditions from PHB Appendix A
     blinded: {
         name: "Blinded",
@@ -121,6 +121,16 @@ const CONDITIONS_LIBRARY = {
         }
     },
     // Custom / Other
-    blessed: { name: "Blessed", description: "Add a 1d4 to attack rolls and saving throws.", effects: { isBlessed: true } },
-    baned: { name: "Baned", description: "Subtract a 1d4 from attack rolls and saving throws.", effects: { isBaned: true } }
+    blessed: {
+        name: "Blessed",
+        description: "Add a 1d4 to attack rolls and saving throws.",
+        effects: { isBlessed: true },
+        type: 'beneficial'
+    },
+    baned: {
+        name: "Baned",
+        description: "Subtract a 1d4 from attack rolls and saving throws.",
+        effects: { isBaned: true },
+        type: 'harmful'
+    }
 };

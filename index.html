@@ -8,6 +8,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="vendor/choices/choices.min.css">
+    <link rel="stylesheet" href="css/custom-choices.css" />
 </head>
 <body class="p-4 md:p-8">
 
@@ -51,8 +53,8 @@
                 <div class="flex flex-col sm:flex-row items-center gap-4">
                     <label for="simulation-count" class="font-semibold">Number of Simulations:</label>
                     <input type="number" id="simulation-count" value="1000" class="form-input w-full sm:w-48">
-                    <button id="run-button" class="btn btn-primary w-full sm:w-auto flex-grow">Run Simulations</button>
-                    <button id="reset-button" class="btn btn-secondary w-full sm:w-auto">Reset All</button>
+                    <button data-action="run-simulations" id="run-button" class="btn btn-primary w-full sm:w-auto flex-grow">Run Simulations</button>
+                    <button data-action="reset-all" id="reset-button" class="btn btn-secondary w-full sm:w-auto">Reset All</button>
                 </div>
             </div>
 
@@ -104,5 +106,6 @@
     <script src="js/ui.js"></script>
     <script src="js/simulation.js"></script>
     <script src="js/main.js"></script>
+    <script src="vendor/choices/choices.min.js"></script>
 </body>
 </html>

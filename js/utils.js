@@ -6,22 +6,28 @@ function deepCopy(obj) {
 
 function rollD20(roller, options = {}) {
     const { advantage = false, disadvantage = false, blessed = false, baned = false } = options;
+
+    // Step 1: Roll the dice first
     let roll1 = Math.floor(Math.random() * 20) + 1;
-    let roll2 = Math.floor(Math.random() * 20) + 1;
+    let roll2;
+    if (advantage || disadvantage) {
+        roll2 = Math.floor(Math.random() * 20) + 1;
+    }
+
+    // Step 2: Apply lucky reroll if applicable, but only once.
     let lucky = false;
 
     if (roller.abilities.lucky) {
         if (roll1 === 1) {
             roll1 = Math.floor(Math.random() * 20) + 1;
             lucky = true;
-        }
-        if (roll2 === 1 && (advantage || disadvantage)) {
-            // Reroll the second die if it's a 1 and matters
+        } else if (roll2 === 1) {
             roll2 = Math.floor(Math.random() * 20) + 1;
             lucky = true;
         }
     }
 
+    // Step 3: Determine the base roll from the final dice values.
     let baseRoll;
     if (advantage && !disadvantage) {
         baseRoll = Math.max(roll1, roll2);
@@ -31,6 +37,7 @@ function rollD20(roller, options = {}) {
         baseRoll = roll1;
     }
     
+    // Step 4: Apply bless/bane to the final roll.
     let finalRoll = baseRoll;
     let blessBonus = 0;
     let banePenalty = 0;
@@ -49,15 +56,27 @@ function rollD20(roller, options = {}) {
 
 
 function rollDice(diceNotation, options = {}) {
-    if (!diceNotation || typeof diceNotation !== 'string') return 0;
+    if (!diceNotation || typeof diceNotation !== 'string' || diceNotation.trim() === '') {
+        return null;
+    }
+
     let total = 0;
     const rerollValues = options.reroll || [];
-    diceNotation.split('+').forEach(part => {
-        if (part.includes('d')) {
-            const [numStr, sidesStr] = part.split('d');
-            const num = parseInt(numStr) || 1;
-            const sides = parseInt(sidesStr);
-            if (isNaN(num) || isNaN(sides)) return;
+    const parts = diceNotation.replace(/-/g, '+-').split('+');
+
+    for (const part of parts) {
+        const trimmedPart = part.trim();
+        if (trimmedPart === '') continue;
+
+        if (trimmedPart.includes('d')) {
+            const [numStr, sidesStr] = trimmedPart.split('d');
+            const num = numStr === '' ? 1 : parseInt(numStr, 10);
+            const sides = parseInt(sidesStr, 10);
+
+            if (isNaN(num) || isNaN(sides) || sides <= 0) {
+                return null;
+            }
+
             for (let i = 0; i < num; i++) {
                 let roll = Math.floor(Math.random() * sides) + 1;
                 if (rerollValues.includes(roll)) {
@@ -66,27 +85,47 @@ function rollDice(diceNotation, options = {}) {
                 total += roll;
             }
         } else {
-            total += Number(part);
+            const staticValue = parseInt(trimmedPart, 10);
+            if (isNaN(staticValue)) {
+                return null;
+            }
+            total += staticValue;
         }
-    });
+    }
+
     return total;
 }
 
 function calculateAverageDamage(damageNotation) {
-    if (!damageNotation || typeof damageNotation !== 'string') return 0;
+    if (!damageNotation || typeof damageNotation !== 'string' || damageNotation.trim() === '') {
+        return null;
+    }
+
     let total = 0;
-    damageNotation.split('+').forEach(part => {
-        if (part.includes('d')) {
-            const [numStr, sidesStr] = part.split('d');
-            const num = parseInt(numStr) || 1;
-            const sides = parseInt(sidesStr);
-            if (isNaN(num) || isNaN(sides)) return;
-            // Average of one die is (sides + 1) / 2
+    const parts = damageNotation.replace(/-/g, '+-').split('+');
+
+    for (const part of parts) {
+        const trimmedPart = part.trim();
+        if (trimmedPart === '') continue;
+
+        if (trimmedPart.includes('d')) {
+            const [numStr, sidesStr] = trimmedPart.split('d');
+            const num = numStr === '' ? 1 : parseInt(numStr, 10);
+            const sides = parseInt(sidesStr, 10);
+
+            if (isNaN(num) || isNaN(sides) || sides <= 0) {
+                return null;
+            }
             total += num * ((sides + 1) / 2);
         } else {
-            total += Number(part);
+            const staticValue = parseInt(trimmedPart, 10);
+            if (isNaN(staticValue)) {
+                return null;
+            }
+            total += staticValue;
         }
-    });
+    }
+
     return total;
 }
 

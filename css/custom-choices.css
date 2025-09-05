@@ -1,0 +1,74 @@
+/*
+ * Custom dark theme for Choices.js
+ * to match the application's aesthetic.
+ * We scope this to our specific wrapper to avoid global side effects.
+ */
+
+.choices__inner {
+    font-size: 1rem; /* Match other inputs */
+}
+
+#ability-select-wrapper .choices {
+    /* Override CSS variables for our dark theme */
+    --choices-bg-color: #374151; /* bg-gray-700 for the main input area */
+    --choices-bg-color-dropdown: #1f2937; /* bg-gray-800 for the dropdown list */
+    --choices-keyline-color: #4b5563; /* border-gray-600 */
+    --choices-text-color: #d1d5db; /* text-gray-300 */
+    --choices-highlighted-color: #374151; /* bg-gray-700 for highlighted items */
+    --choices-item-disabled-color: #6b7280; /* text-gray-500 */
+}
+
+.choices__inner {
+    background-color: #374151; /* bg-gray-700 */
+    border: 1px solid #4b5563; /* border-gray-600 */
+    color: #d1d5db; /* text-gray-300 */
+    border-radius: 0.375rem; /* rounded-md */
+    min-height: 2.5rem; /* Match other form inputs */
+    padding: 0.5rem 0.75rem;
+}
+
+.is-open .choices__inner {
+    border-color: #6b7280; /* border-gray-500 */
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+/* Dropdown list container */
+.choices__list--dropdown {
+    border-bottom-left-radius: 0.375rem; /* rounded-md */
+    border-bottom-right-radius: 0.375rem; /* rounded-md */
+}
+
+/* Placeholder text */
+.choices__placeholder {
+    color: #9ca3af; /* text-gray-400 */
+    opacity: 1;
+}
+
+/* Dropdown list container */
+/* Search input inside the dropdown */
+.choices__input--cloned {
+    padding: 0.5rem 0.75rem;
+    margin: 0;
+    background-color: var(--choices-bg-color-dropdown); /* Ensure it matches dropdown bg */
+    border-bottom: 1px solid var(--choices-keyline-color);
+}
+
+/* Individual item in the dropdown list */
+.choices__item--choice {
+    padding: 0.5rem 0.75rem;
+}
+
+/* Dropdown arrow */
+.choices[data-type*='select-one']::after {
+    border-color: #d1d5db transparent transparent transparent;
+}
+
+.choices[data-type*='select-one'].is-open::after {
+    border-color: transparent transparent #d1d5db transparent;
+}
+
+/* Remove the 'x' button on selected items for a cleaner look */
+.choices__item--selectable .choices__button {
+    display: none;
+}

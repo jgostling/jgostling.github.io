@@ -69,6 +69,12 @@ function handleDelegatedClick(event) {
     const { action, team, id, direction, tab, index, key, type } = target.dataset;
 
     switch (action) {
+        case 'run-simulations':
+            runBatchSimulations();
+            break;
+        case 'reset-all':
+            resetAll();
+            break;
         case 'switch-tab':
             switchTab(team, tab);
             break;
@@ -91,7 +97,7 @@ function handleDelegatedClick(event) {
             removeCombatant(team, id);
             break;
         case 'open-add-editor':
-            openEditorModal(team);
+            openEditorModal(team, null);
             break;
         case 'configure-selected-ability':
             configureSelectedAbility();
@@ -111,28 +117,9 @@ function handleDelegatedClick(event) {
         case 'edit-action':
             openActionEditorModal(index);
             break;
-        case 'select-action-type': {
-            const { action: currentAction, isNew } = appState.getActionEditorState();
-            let formHTML;
-            switch (type) {
-                case 'attack':
-                    formHTML = getAttackActionFormHTML(currentAction, isNew);
-                    break;
-                case 'save':
-                    formHTML = getSaveActionFormHTML(currentAction, isNew);
-                    break;
-                case 'heal':
-                    formHTML = getHealActionFormHTML(currentAction, isNew);
-                    break;
-                case 'effect':
-                    formHTML = getEffectActionFormHTML(currentAction, isNew);
-                    break;
-            }
-            if (formHTML) {
-                document.getElementById('action-editor-modal-content').innerHTML = formHTML;
-            }
+        case 'select-action-type':
+            selectActionType(type);
             break;
-        }
         case 'remove-action':
             removeActionFromEditor(index);
             break;
@@ -200,9 +187,37 @@ function handleDelegatedClick(event) {
 }
 
 function initializeApp() {
-    document.getElementById('run-button').addEventListener('click', runBatchSimulations);
-    document.getElementById('reset-button').addEventListener('click', resetAll);
     document.body.addEventListener('click', handleDelegatedClick);
+
+    // Create and configure hidden file inputs for testability and functionality.
+    ['A', 'B'].forEach(team => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json,application/json';
+        input.style.display = 'none';
+        input.setAttribute('data-cy', `load-team-input-${team}`);
+        document.body.appendChild(input);
+
+        input.addEventListener('change', e => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = event => {
+                try {
+                    const combatants = JSON.parse(event.target.result);
+                    appState.setTeam(team, combatants);
+                    renderTeams();
+                } catch (err) {
+                    alert('Error parsing JSON file. Please ensure it is correctly formatted.');
+                    console.error('JSON parsing error:', err);
+                }
+            };
+            reader.readAsText(file);
+            // Reset the input value to allow loading the same file again
+            e.target.value = '';
+        });
+    })
 
     // Add a global click listener to close tooltips when clicking outside
     document.addEventListener('click', (event) => {
