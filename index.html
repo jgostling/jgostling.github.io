@@ -16,7 +16,6 @@
     <header class="text-center mb-8 max-w-7xl mx-auto">
         <h1 class="title-font text-4xl md:text-5xl font-bold text-white">D&D Combat Simulator</h1>
         <p class="text-gray-400 mt-2">A comprehensive tool for testing D&D 5e encounter balance.</p>
-        <p class="text-xs text-gray-500 mt-4">This website is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.</p>
     </header>
 
     <div class="flex flex-col lg:flex-row gap-8 max-w-screen-2xl mx-auto">
@@ -74,32 +73,21 @@
         </main>
     </div>
 
-    <!-- Editor Modal -->
-    <div id="editor-modal-overlay" class="hidden fixed inset-0 bg-black bg-opacity-75 z-40"></div>
-    <div id="editor-modal" class="hidden fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-4xl">
-        <div id="editor-modal-content" class="card">
-            <!-- Editor HTML will be injected here by ui.js -->
+    <!-- Editor Drawer -->
+    <div id="editor-drawer-overlay" class="hidden fixed inset-0 bg-black bg-opacity-75 z-40"></div>
+    <div id="editor-drawer" class="fixed top-0 h-full bg-gray-800 w-full max-w-2xl shadow-lg z-50">
+        <div id="editor-drawer-content" class="p-6 h-full flex flex-col">
+            <!-- Editor content will be injected here -->
         </div>
     </div>
 
-    <!-- Action Editor Modal (for Guided Builder) -->
-    <div id="action-editor-modal-overlay" class="hidden fixed inset-0 bg-black bg-opacity-75 z-60"></div>
-    <div id="action-editor-modal" class="hidden fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-70 w-full max-w-2xl">
-        <div id="action-editor-modal-content" class="card">
-            <!-- Action Editor Form will be injected here by ui.js -->
-        </div>
-    </div>
-
-    <!-- Ability Editor Modal -->
-    <div id="ability-editor-modal-overlay" class="hidden fixed inset-0 bg-black bg-opacity-75 z-60"></div>
-    <div id="ability-editor-modal" class="hidden fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-70 w-full max-w-2xl">
-        <div id="ability-editor-modal-content" class="card">
-            <!-- Ability Editor will be injected here by ui.js -->
-        </div>
-    </div>
+    <footer class="text-center mt-8 max-w-7xl mx-auto">
+        <p class="text-xs text-gray-500">This website is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.</p>
+    </footer>
 
     <script src="js/conditions.js"></script>
     <script src="js/abilities.js"></script>
+    <script src="js/eventbus.js"></script>
     <script src="js/utils.js"></script>
     <script src="js/state.js"></script>
     <script src="js/data.js"></script>

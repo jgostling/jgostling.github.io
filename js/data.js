@@ -7,16 +7,16 @@ var DAMAGE_TYPES = [
 ].sort();
 
 function readCombatantFromForm(existingId = null) {
-    const prefix = 'modal';
+    const prefix = 'editor';
     const combatant = {
         id: existingId,
-        name: document.getElementById(`name-${prefix}`).value || 'Combatant',
-        hp: parseInt(document.getElementById(`hp-${prefix}`).value) || 10,
-        ac: parseInt(document.getElementById(`ac-${prefix}`).value) || 10,
-        size: document.getElementById(`size-${prefix}`).value,
-        role: document.getElementById(`role-${prefix}`).value,
-        type: document.getElementById(`type-${prefix}`).value.toLowerCase(),
-        initiative_mod: parseInt(document.getElementById(`init_mod-${prefix}`).value) || 0,
+        name: document.getElementById(`${prefix}-name`).value || 'Combatant',
+        hp: parseInt(document.getElementById(`${prefix}-hp`).value) || 10,
+        ac: parseInt(document.getElementById(`${prefix}-ac`).value) || 10,
+        size: document.getElementById(`${prefix}-size`).value,
+        role: document.getElementById(`${prefix}-role`).value,
+        type: document.getElementById(`${prefix}-type`).value.toLowerCase(),
+        initiative_mod: parseInt(document.getElementById(`${prefix}-init_mod`).value) || 0,
         saves: {},
         spell_slots: {},
         attacks: [],
@@ -25,10 +25,10 @@ function readCombatantFromForm(existingId = null) {
     combatant.maxHp = combatant.hp;
 
     ['str', 'dex', 'con', 'int', 'wis', 'cha'].forEach(s => {
-        combatant.saves[s] = parseInt(document.getElementById(`save-${s}-${prefix}`).value) || 0;
+        combatant.saves[s] = parseInt(document.getElementById(`${prefix}-save-${s}`).value) || 0;
     });
     [1, 2, 3, 4, 5, 6, 7, 8, 9].forEach(s => {
-        combatant.spell_slots[s] = parseInt(document.getElementById(`slot-${s}-${prefix}`).value) || 0;
+        combatant.spell_slots[s] = parseInt(document.getElementById(`${prefix}-slot-${s}`).value) || 0;
     });
 
     // Actions and abilities are edited in separate flows. When the main combatant form is saved,
@@ -52,6 +52,12 @@ function readActionFromForm() {
     };
     const getChecked = (id) => document.getElementById(id)?.checked || false;
 
+    // The form type is stored in a hidden input to make the form self-describing.
+    const formType = getValue('action-editor-form-type');
+    if (formType) {
+        action.type = formType;
+    }
+
     action.name = getValue('action-editor-name') || 'Unnamed Action';
     action.action = getValue('action-editor-action');
 
@@ -61,8 +67,9 @@ function readActionFromForm() {
     const damage = getValue('action-editor-damage');
     if (damage) action.damage = damage;
 
-    const type = getValue('action-editor-type');
-    if (type) action.type = type;
+    // This is the damage type, not the action type.
+    const damageType = getValue('action-editor-type');
+    if (damageType) action.damageType = damageType;
 
     if (getChecked('action-editor-ranged')) action.ranged = true;
     if (getChecked('action-editor-heavy')) action.heavy = true;
@@ -77,10 +84,42 @@ function readActionFromForm() {
     const heal = getValue('action-editor-heal');
     if (heal) action.heal = heal;
 
+    // --- On-Hit Effect Logic ---
+    const onHitDamage = getValue('action-editor-onhit-damage');
+    const onHitDamageType = getValue('action-editor-onhit-damage-type');
+    const onHitSaveDc = getInt('action-editor-onhit-save-dc');
+    const onHitSaveType = getValue('action-editor-onhit-save-type');
+    const onHitOnSave = getValue('action-editor-onhit-on-save');
     const effectName = getValue('action-editor-effect-name');
     const effectDuration = getInt('action-editor-effect-duration');
+
+    const onHitEffect = {};
+    let hasOnHitData = false;
+
+    if (onHitDamage) {
+        onHitEffect.damage = onHitDamage;
+        if (onHitDamageType) onHitEffect.damageType = onHitDamageType;
+        hasOnHitData = true;
+    }
+
+    if (onHitSaveDc && onHitSaveType) {
+        onHitEffect.save = { dc: onHitSaveDc, type: onHitSaveType };
+        if (onHitOnSave) onHitEffect.on_save = onHitOnSave;
+        hasOnHitData = true;
+    }
+
     if (effectName && effectDuration !== null) {
-        action.effect = { name: effectName, duration: effectDuration };
+        // This effect could be for an on_hit_effect or a primary effect.
+        if (action.type === 'attack' || action.type === 'save') {
+            onHitEffect.effect = { name: effectName, duration: effectDuration };
+            hasOnHitData = true;
+        } else { // 'effect' type
+            action.effect = { name: effectName, duration: effectDuration };
+        }
+    }
+
+    if (hasOnHitData) {
+        action.on_hit_effect = onHitEffect;
     }
 
     const usesMax = getInt('action-editor-uses-max');

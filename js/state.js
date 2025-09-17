@@ -80,8 +80,11 @@ class AppState {
             return;
         }
         // Validate and enrich each combatant from the loaded file.
-        const processedCombatants = combatants.map(c => {
+        const processedCombatants = combatants.map((c, index) => {
             if (!c.name || !c.hp || !c.ac) return null;
+            // Regenerate ID on load to guarantee uniqueness across teams and sessions,
+            // preventing event bus and logic errors from duplicate IDs.
+            c.id = `c${Date.now()}${Math.random()}${index}`;
             // Ensure maxHp is set, which is done on creation but might be missing from a file.
             c.maxHp = c.maxHp || c.hp;
             c.role = c.role || 'frontline';

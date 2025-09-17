@@ -5,53 +5,57 @@ function deepCopy(obj) {
 }
 
 function rollD20(roller, options = {}) {
-    const { advantage = false, disadvantage = false, blessed = false, baned = false } = options;
+    const { advantage = false, disadvantage = false } = options;
 
-    // Step 1: Roll the dice first
-    let roll1 = Math.floor(Math.random() * 20) + 1;
-    let roll2;
+    // Step 1: Roll the dice.
+    const initialRolls = [Math.floor(Math.random() * 20) + 1];
     if (advantage || disadvantage) {
-        roll2 = Math.floor(Math.random() * 20) + 1;
+        initialRolls.push(Math.floor(Math.random() * 20) + 1);
     }
 
-    // Step 2: Apply lucky reroll if applicable, but only once.
-    let lucky = false;
-
-    if (roller.abilities.lucky) {
-        if (roll1 === 1) {
-            roll1 = Math.floor(Math.random() * 20) + 1;
-            lucky = true;
-        } else if (roll2 === 1) {
-            roll2 = Math.floor(Math.random() * 20) + 1;
-            lucky = true;
-        }
-    }
+    // Step 2: Dispatch an event that allows abilities to modify the rolls.
+    const d20RolledEventData = {
+        roller: roller,
+        rolls: initialRolls, // Pass the array of rolls
+        advantage,
+        disadvantage,
+        lucky: false
+    };
+    const modifiedEventData = eventBus.dispatch('d20_rolled', d20RolledEventData);
+    const finalRolls = modifiedEventData.rolls;
+    const lucky = modifiedEventData.lucky;
 
     // Step 3: Determine the base roll from the final dice values.
     let baseRoll;
     if (advantage && !disadvantage) {
-        baseRoll = Math.max(roll1, roll2);
+        baseRoll = Math.max(...finalRolls);
     } else if (disadvantage && !advantage) {
-        baseRoll = Math.min(roll1, roll2);
+        baseRoll = Math.min(...finalRolls);
     } else {
-        baseRoll = roll1;
-    }
-    
-    // Step 4: Apply bless/bane to the final roll.
-    let finalRoll = baseRoll;
-    let blessBonus = 0;
-    let banePenalty = 0;
-
-    if (blessed) {
-        blessBonus = rollDice('1d4');
-        finalRoll += blessBonus;
-    }
-    if (baned) {
-        banePenalty = rollDice('1d4');
-        finalRoll -= banePenalty;
+        baseRoll = finalRolls[0];
     }
 
-    return { roll: finalRoll, rawRoll: baseRoll, lucky, blessBonus, banePenalty };
+    // Step 4: Dispatch an event to apply modifiers like Bless and Bane.
+    const d20ModifyingEventData = {
+        roller: roller,
+        finalRoll: baseRoll,
+        bonus: 0,
+        penalty: 0,
+        blessBonus: 0, // For logging
+        banePenalty: 0  // For logging
+    };
+    const modifiedD20EventData = eventBus.dispatch('d20_modifying', d20ModifyingEventData);
+
+    // Step 5: Calculate the final roll using the results from the event.
+    const finalRoll = baseRoll + modifiedD20EventData.bonus - modifiedD20EventData.penalty;
+    const blessBonus = modifiedD20EventData.blessBonus;
+    const banePenalty = modifiedD20EventData.banePenalty;
+
+    // For logging purposes, separate the generic bonuses from the named ones (bless/bane).
+    const eventBonus = modifiedD20EventData.bonus - blessBonus;
+    const eventPenalty = modifiedD20EventData.penalty - banePenalty;
+
+    return { roll: finalRoll, rawRoll: baseRoll, lucky, blessBonus, banePenalty, eventBonus, eventPenalty };
 }
 
 
@@ -129,48 +133,50 @@ function calculateAverageDamage(damageNotation) {
     return total;
 }
 
+function getActionThreat(action, combatant) {
+    let threat = 0;
+    if (action.multiattack) {
+        threat = action.multiattack.reduce((totalDamage, subActionInfo) => {
+            const subAction = combatant.attacks.find(a => a.name === subActionInfo.name);
+            if (subAction && subAction.damage) {
+                return totalDamage + (calculateAverageDamage(subAction.damage) * subActionInfo.count);
+            }
+            return totalDamage;
+        }, 0);
+    } else if (action.damage) {
+        const numTargets = parseInt(action.targets) || 1;
+        threat = calculateAverageDamage(action.damage) * numTargets;
+    }
+    return threat;
+}
+
 function calculateThreat(combatant) {
     if (!combatant.attacks || combatant.attacks.length === 0) return 1;
 
     let mainActionDamage = 0;
     let bonusActionDamage = 0;
 
-    if (combatant.abilities.multiattack) {
-        const attacks = combatant.abilities.multiattack.split(';');
-        attacks.forEach(attackString => {
-            const [count, name] = attackString.split('/');
-            const action = combatant.attacks.find(a => a.name.toLowerCase() === name.toLowerCase().trim());
-            if (action && action.damage) {
-                mainActionDamage += calculateAverageDamage(action.damage) * parseInt(count);
-            }
-        });
-    } else {
-        // Find the best single main action
-        const mainActions = combatant.attacks.filter(a => (a.action || 'action') === 'action' && a.damage);
-        if (mainActions.length > 0) {
-            const threats = mainActions.map(action => {
-                const numTargets = parseInt(action.targets) || 1;
-                return calculateAverageDamage(action.damage) * numTargets;
-            });
-            mainActionDamage = Math.max(0, ...threats);
-        }
+    const mainActions = combatant.attacks.filter(a => (a.action || 'action') === 'action');
+    if (mainActions.length > 0) {
+        const mainActionThreats = mainActions.map(action => getActionThreat(action, combatant));
+        mainActionDamage = Math.max(0, ...mainActionThreats);
     }
 
-    // Find the best bonus action, which can be used in addition to the main action
-    const bonusActions = combatant.attacks.filter(a => a.action === 'bonus_action' && a.damage);
+    const bonusActions = combatant.attacks.filter(a => a.action === 'bonus_action');
     if (bonusActions.length > 0) {
-        const threats = bonusActions.map(action => {
-            const numTargets = parseInt(action.targets) || 1;
-            return calculateAverageDamage(action.damage) * numTargets;
-        });
-        bonusActionDamage = Math.max(0, ...threats);
+        const bonusActionThreats = bonusActions.map(action => getActionThreat(action, combatant));
+        bonusActionDamage = Math.max(0, ...bonusActionThreats);
     }
 
     let potentialDamage = mainActionDamage + bonusActionDamage;
 
-    if (combatant.abilities.sneak_attack) {
-        potentialDamage += calculateAverageDamage(combatant.abilities.sneak_attack);
-    }
+    // Dispatch an event to allow abilities like Sneak Attack to add to the potential damage.
+    const threatCalculatingEventData = {
+        combatant: combatant,
+        potentialDamage: potentialDamage
+    };
+    const modifiedEventData = eventBus.dispatch('threat_calculating', threatCalculatingEventData);
+    potentialDamage = modifiedEventData.potentialDamage;
 
     return Math.round(potentialDamage) || 1;
 }

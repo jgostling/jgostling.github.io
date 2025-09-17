@@ -56,6 +56,7 @@ function closeAllTooltips() {
     document.querySelectorAll('.tooltip-box.active').forEach(box => {
         box.classList.remove('active');
         // Clean up any inline styles that were added for positioning
+        box.style.top = '';
         box.style.left = '';
         box.style.right = '';
         box.style.transform = '';
@@ -76,13 +77,13 @@ function handleDelegatedClick(event) {
             resetAll();
             break;
         case 'switch-tab':
-            switchTab(team, tab);
+            switchEditorTab(tab);
             break;
         case 'commit':
             handleCommit();
             break;
         case 'cancel-edit':
-            cancelEdit();
+            closeEditorDrawer();
             break;
         case 'move-combatant':
             moveCombatant(team, id, parseInt(direction));
@@ -97,13 +98,13 @@ function handleDelegatedClick(event) {
             removeCombatant(team, id);
             break;
         case 'open-add-editor':
-            openEditorModal(team, null);
+            openEditorDrawer(team, null);
             break;
         case 'configure-selected-ability':
             configureSelectedAbility();
             break;
         case 'cancel-ability-config':
-            closeAbilityEditorModal();
+            renderMainEditorInDrawer(); // This was already correct, but confirming.
             break;
         case 'commit-ability':
             commitAbility(key);
@@ -112,10 +113,10 @@ function handleDelegatedClick(event) {
             removeAbilityFromEditor(key);
             break;
         case 'open-action-editor':
-            openActionEditorModal();
+            renderActionEditorInDrawer();
             break;
         case 'edit-action':
-            openActionEditorModal(index);
+            renderActionEditorInDrawer(index);
             break;
         case 'select-action-type':
             selectActionType(type);
@@ -124,10 +125,13 @@ function handleDelegatedClick(event) {
             removeActionFromEditor(index);
             break;
         case 'cancel-action-edit':
-            closeActionEditorModal();
+            cancelActionEditor(); // This is for the sub-editor's cancel button.
             break;
         case 'commit-action':
             commitAction();
+            break;
+        case 'back-to-main-editor':
+            renderMainEditorInDrawer();
             break;
         case 'toggle-accordion': {
             const clickedItem = target.closest('.accordion-item');
@@ -157,22 +161,23 @@ function handleDelegatedClick(event) {
                 if (!wasActive) {
                     box.classList.add('active');
 
-                    const iconRect = container.getBoundingClientRect();
-                    const boxRect = box.getBoundingClientRect();
+                    // With position:fixed, we must manually calculate the position relative to the viewport.
+                    const iconRect = target.getBoundingClientRect();
+                    const boxRect = box.getBoundingClientRect(); // Get dimensions of the now-visible box
                     const viewportWidth = window.innerWidth;
-                    const PADDING = 8; // 8px padding from screen edge
+                    const PADDING = 8;
 
-                    // Check for overflow and adjust
-                    if (boxRect.left < PADDING) {
-                        // Overflows on the left
-                        box.style.left = `${PADDING}px`;
-                        box.style.transform = 'translateX(0)';
-                    } else if (boxRect.right > viewportWidth - PADDING) {
-                        // Overflows on the right
-                        box.style.left = 'auto';
-                        box.style.right = `${PADDING}px`;
-                        box.style.transform = 'translateX(0)';
+                    // Position vertically: 6px above the icon
+                    box.style.top = `${iconRect.top - boxRect.height - 6}px`;
+
+                    // Position horizontally: centered on the icon, but constrained by the viewport
+                    let left = iconRect.left + (iconRect.width / 2) - (boxRect.width / 2);
+                    if (left < PADDING) {
+                        left = PADDING;
+                    } else if (left + boxRect.width > viewportWidth - PADDING) {
+                        left = viewportWidth - boxRect.width - PADDING;
                     }
+                    box.style.left = `${left}px`;
                 }
             }
             break;
