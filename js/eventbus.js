@@ -97,16 +97,16 @@ var EventBus = class EventBus {
                     if (conditionDef.conditions(reactor, eventData)) {
                         // If a condition has a getScore method, it's a choice. Otherwise, it's automatic.
                         if (typeof conditionDef.getScore === 'function') {
-                            const score = getReactionScore(reactor, conditionDef, eventData);
+                            const score = getReactionScore(reactor, conditionDef, eventData, condition);
                             if (score > 0) {
-                                conditionDef.effect(reactor, eventData);
+                                conditionDef.effect(reactor, eventData, condition);
                                 if (conditionDef.consumesReaction !== false) {
                                     reactor.status.usedReaction = true;
                                 }
                             }
                         } else {
                             // Automatic effect, no AI decision needed.
-                            conditionDef.effect(reactor, eventData);
+                            conditionDef.effect(reactor, eventData, condition);
                             if (conditionDef.consumesReaction !== false) {
                                 reactor.status.usedReaction = true;
                             }

@@ -4,7 +4,7 @@ function deepCopy(obj) {
     return JSON.parse(JSON.stringify(obj));
 }
 
-function rollD20(roller, options = {}) {
+function rollD20(roller, options = {}, rollType = 'misc', rollContext = {}) {
     const { advantage = false, disadvantage = false } = options;
 
     // Step 1: Roll the dice.
@@ -42,7 +42,9 @@ function rollD20(roller, options = {}) {
         bonus: 0,
         penalty: 0,
         blessBonus: 0, // For logging
-        banePenalty: 0  // For logging
+        banePenalty: 0,  // For logging
+        rollType: rollType,
+        ...rollContext
     };
     const modifiedD20EventData = eventBus.dispatch('d20_modifying', d20ModifyingEventData);
 

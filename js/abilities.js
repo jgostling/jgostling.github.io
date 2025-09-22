@@ -993,7 +993,7 @@ var ABILITIES_LIBRARY = {
                     if (chargeConfig.dc) {
                         const saveResult = makeSavingThrow(eventData.target, chargeConfig.dc, chargeConfig.type, chargeConfig);
                         if (!saveResult.passed) {
-                            applyCondition(reactor, eventData.target, { name: chargeConfig.effect || 'prone' }, chargeConfig.dc);
+                            applyCondition(reactor, eventData.target, { name: chargeConfig.effect || 'prone' }, chargeConfig.dc, eventData.context);
                         }
                     }
                     break;
@@ -1031,8 +1031,65 @@ var ABILITIES_LIBRARY = {
     },
 
     // --- AI & Internal Abilities ---
-    system_repeating_saves: {
-        name: "System: Repeating Saves",
+    system_concentration_incapacitated: {
+        name: "System: Concentration on Incapacitation",
+        description: "Internal system to handle breaking concentration when incapacitated or defeated.",
+        valueType: 'boolean',
+        category: 'internal',
+        consumesReaction: false,
+        trigger: {
+            events: ['condition_applied', 'creature_defeated'] // Changed to listen for the new, later event.
+        },
+        conditions: (reactor, eventData) => {
+            const target = eventData.target || eventData.defeated;
+            // The reactor must be the one affected by the condition or being defeated.
+            if (reactor.id !== target.id) return false;
+            // The reactor must be concentrating on a spell.
+            return !!reactor.status.concentratingOn;
+        },
+        effect: (reactor, eventData) => {
+            if (eventData.eventName === 'creature_defeated') {
+                breakConcentration(reactor, eventData.context);
+            } else if (eventData.eventName === 'condition_applied') {
+                const conditionDef = CONDITIONS_LIBRARY[eventData.condition.name];
+                if (conditionDef?.includes?.includes('incapacitated')) {
+                    breakConcentration(reactor, eventData.context);
+                }
+            }
+        }
+    },
+    system_concentration_save: {
+        name: "System: Concentration Save",
+        description: "Internal system to handle concentration saves when taking damage.",
+        valueType: 'boolean',
+        category: 'internal',
+        consumesReaction: false,
+        trigger: {
+            event: 'damage_applying'
+        },
+        conditions: (reactor, eventData) => {
+            // The reactor must be the target of the damage.
+            if (reactor.id !== eventData.target.id) return false;
+            // The reactor must be concentrating on a spell.
+            return !!reactor.status.concentratingOn;
+        },
+        effect: (reactor, eventData) => {
+            const damageTaken = eventData.damage;
+            const dc = Math.max(10, Math.floor(damageTaken / 2));
+            log(`${reactor.name} must make a DC ${dc} Constitution save to maintain concentration.`, 1);
+            
+            const saveResult = makeSavingThrow(reactor, dc, 'con', {}, eventData.context); // sourceAction can be empty
+            
+            if (!saveResult.passed) {
+                log(`${reactor.name} fails the concentration save!`, 1);
+                breakConcentration(reactor, eventData.context);
+            } else {
+                log(`${reactor.name} succeeds and maintains concentration.`, 1);
+            }
+        }
+    },
+    system_turn_end_handler: {
+        name: "System: Turn End Handler",
         description: "Internal system to handle conditions that allow for a save at the end of a turn.",
         valueType: 'boolean',
         category: 'internal',
@@ -1042,25 +1099,66 @@ var ABILITIES_LIBRARY = {
         },
         conditions: (reactor, eventData) => {
             // The reactor must be the one whose turn is ending.
-            if (reactor.id !== eventData.combatant.id) return false;
-            // Must have at least one condition that allows a repeating save on this event.
-            return reactor.status.conditions.some(c => c.repeating_save?.event === 'turn_ended');
+            // This handler needs to run on every turn end to check for relative durations on other combatants.
+            // The effect logic will be responsible for ensuring it only acts once.
+            // We only need one instance of this handler to run, so we tie it to the combatant whose turn is ending.
+            return reactor.id === eventData.combatant.id;
         },
         effect: (reactor, eventData) => {
-            const conditionsToSaveAgainst = reactor.status.conditions.filter(
-                c => c.repeating_save?.event === 'turn_ended'
-            );
+            const activeCombatant = eventData.combatant; // The one whose turn is ending
+            const allCombatants = eventData.allCombatants;
+            if (!allCombatants) return; // Safeguard if the event payload is missing the array
 
-            for (const condition of conditionsToSaveAgainst) {
-                log(`${reactor.name} attempts to save against ${condition.name}.`, 1);
-                const saveResult = makeSavingThrow(reactor, condition.saveDC, condition.repeating_save.type, {});
-                if (saveResult.passed) {
-                    log(`${reactor.name} breaks free from the ${condition.name} condition!`, 1);
-                    // Remove the condition from the reactor's status.
-                    reactor.status.conditions = reactor.status.conditions.filter(c => c !== condition);
-                } else {
-                    log(`${reactor.name} fails to break free.`, 1);
+            for (const combatant of allCombatants) {
+                if (!combatant.status.conditions || combatant.status.conditions.length === 0) continue;
+
+                const conditionsToRemove = new Set();
+
+                // Handle repeating saves only for the active combatant
+                if (combatant.id === activeCombatant.id) {
+                    const conditionsToSaveAgainst = combatant.status.conditions.filter(
+                        cond => cond.repeating_save?.event === 'turn_ended'
+                    );
+                    for (const condition of conditionsToSaveAgainst) {
+                        log(`${combatant.name} attempts to save against ${condition.name}.`, 1);
+                        const saveResult = makeSavingThrow(combatant, condition.saveDC, condition.repeating_save.type, {}, eventData.context);
+                        if (saveResult.passed) {
+                            log(`${combatant.name} breaks free from the ${condition.name} condition!`, 1);
+                            conditionsToRemove.add(condition);
+                        } else {
+                            log(`${combatant.name} fails to break free.`, 1);
+                        }
+                    }
                 }
+
+                // Handle duration decrements for all combatants
+                combatant.status.conditions.forEach(cond => {
+                    let shouldDecrement = false;
+                    if (cond.duration?.turnEnds) {
+                        if (cond.duration.relativeTo === 'source') {
+                            if (cond.sourceId === activeCombatant.id) shouldDecrement = true;
+                        } else {
+                            if (combatant.id === activeCombatant.id) shouldDecrement = true;
+                        }
+                    }
+                    if (shouldDecrement) {
+                        cond.duration.turnEnds--;
+                    }
+                });
+
+                // Now, filter out any conditions that have expired or were saved against.
+                combatant.status.conditions = combatant.status.conditions.filter(cond => {
+                    if (conditionsToRemove.has(cond)) {
+                        return false;
+                    }
+                    if (cond.duration?.turnEnds <= 0) {
+                        const conditionDef = CONDITIONS_LIBRARY[cond.name];
+                        const displayName = conditionDef ? conditionDef.name : cond.name;
+                        log(`The ${displayName} effect on ${combatant.name} has expired.`, 1);
+                        return false; // Discard expired condition
+                    }
+                    return true; // Keep the condition
+                });
             }
         }
     },

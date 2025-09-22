@@ -42,6 +42,29 @@ function readCombatantFromForm(existingId = null) {
     return combatant;
 }
 
+function _readEffectProperties(effectObject, readDuration) {
+    const duration = readDuration();
+    if (duration) {
+        effectObject.duration = duration;
+    }
+
+    const resistanceSelector = document.getElementById('action-editor-resistance-types');
+    if (resistanceSelector) {
+        const selectedTypes = Array.from(resistanceSelector.selectedOptions).map(opt => opt.value);
+        if (selectedTypes.length > 0) {
+            effectObject.types = selectedTypes;
+        }
+    }
+
+    const dieInput = document.getElementById('action-editor-effect-die');
+    if (dieInput) {
+        const dieValue = dieInput.value.trim();
+        if (dieValue) {
+            effectObject.die = dieValue;
+        }
+    }
+}
+
 function readActionFromForm() {
     const action = {};
 
@@ -51,6 +74,31 @@ function readActionFromForm() {
         return isNaN(val) ? null : val;
     };
     const getChecked = (id) => document.getElementById(id)?.checked || false;
+
+    const readDuration = () => {
+        const durationContainer = document.getElementById('duration-components-container');
+        if (!durationContainer) return null;
+
+        const durationComponents = {};
+        const rows = durationContainer.querySelectorAll('.duration-component-row');
+        rows.forEach(row => {
+            const value = parseInt(row.querySelector('.duration-value').value, 10);
+            const unit = row.querySelector('.duration-unit').value;
+            if (!isNaN(value) && unit) durationComponents[unit] = value;
+        });
+
+        const concentrationCheckbox = document.getElementById('action-editor-duration-concentration');
+        if (concentrationCheckbox?.checked) {
+            durationComponents.concentration = true;
+        }
+
+        const relativeCheckbox = document.getElementById('action-editor-duration-relative');
+        if (relativeCheckbox?.checked) {
+            durationComponents.relativeTo = 'source';
+        }
+
+        return Object.keys(durationComponents).length > 0 ? durationComponents : null;
+    };
 
     // The form type is stored in a hidden input to make the form self-describing.
     const formType = getValue('action-editor-form-type');
@@ -85,41 +133,43 @@ function readActionFromForm() {
     if (heal) action.heal = heal;
 
     // --- On-Hit Effect Logic ---
-    const onHitDamage = getValue('action-editor-onhit-damage');
-    const onHitDamageType = getValue('action-editor-onhit-damage-type');
-    const onHitSaveDc = getInt('action-editor-onhit-save-dc');
-    const onHitSaveType = getValue('action-editor-onhit-save-type');
-    const onHitOnSave = getValue('action-editor-onhit-on-save');
-    const effectName = getValue('action-editor-effect-name');
-    const effectDuration = getInt('action-editor-effect-duration');
+    if (formType === 'attack') {
+        const onHitEffect = {};
+        let hasOnHitData = false;
 
-    const onHitEffect = {};
-    let hasOnHitData = false;
+        const onHitDamage = getValue('action-editor-onhit-damage');
+        if (onHitDamage) { onHitEffect.damage = onHitDamage; hasOnHitData = true; }
 
-    if (onHitDamage) {
-        onHitEffect.damage = onHitDamage;
-        if (onHitDamageType) onHitEffect.damageType = onHitDamageType;
-        hasOnHitData = true;
-    }
+        const onHitDamageType = getValue('action-editor-onhit-damage-type');
+        if (onHitDamageType) { onHitEffect.damageType = onHitDamageType; hasOnHitData = true; }
 
-    if (onHitSaveDc && onHitSaveType) {
-        onHitEffect.save = { dc: onHitSaveDc, type: onHitSaveType };
-        if (onHitOnSave) onHitEffect.on_save = onHitOnSave;
-        hasOnHitData = true;
-    }
-
-    if (effectName && effectDuration !== null) {
-        // This effect could be for an on_hit_effect or a primary effect.
-        if (action.type === 'attack' || action.type === 'save') {
-            onHitEffect.effect = { name: effectName, duration: effectDuration };
+        const onHitSaveDc = getInt('action-editor-onhit-save-dc');
+        const onHitSaveType = getValue('action-editor-onhit-save-type');
+        if (onHitSaveDc && onHitSaveType) {
+            onHitEffect.save = { dc: onHitSaveDc, type: onHitSaveType };
+            const onHitOnSave = getValue('action-editor-onhit-on-save');
+            if (onHitOnSave) onHitEffect.on_save = onHitOnSave;
             hasOnHitData = true;
-        } else { // 'effect' type
-            action.effect = { name: effectName, duration: effectDuration };
         }
-    }
 
-    if (hasOnHitData) {
-        action.on_hit_effect = onHitEffect;
+        const onHitEffectName = getValue('action-editor-onhit-effect-name');
+        if (onHitEffectName) {
+            const effectObject = { name: onHitEffectName };
+            _readEffectProperties(effectObject, readDuration);
+            onHitEffect.effect = effectObject;
+            hasOnHitData = true;
+        }
+
+        if (hasOnHitData) {
+            action.on_hit_effect = onHitEffect;
+        }
+    } else if (formType === 'effect' || formType === 'save') {
+        const effectName = getValue('action-editor-effect-name');
+        if (effectName) {
+            const effectObject = { name: effectName };
+            _readEffectProperties(effectObject, readDuration);
+            action.effect = effectObject;
+        }
     }
 
     const usesMax = getInt('action-editor-uses-max');

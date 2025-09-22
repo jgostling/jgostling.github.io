@@ -5,6 +5,34 @@ var DEFAULT_ACTIONS = {
     DODGE: { name: 'Dodge', type: 'effect', action: 'action', effect: { name: 'dodging', duration: 1 }, targeting: 'self' }
 };
 
+function _formatDurationForLog(duration) {
+    if (!duration) return '';
+
+    const parts = [];
+    if (duration.rounds) {
+        parts.push(`${duration.rounds} round${duration.rounds > 1 ? 's' : ''}`);
+    }
+    if (duration.turnEnds) {
+        parts.push(`${duration.turnEnds} turn${duration.turnEnds > 1 ? 's' : ''}`);
+    }
+    if (duration.uses) {
+        parts.push(`${duration.uses} use${duration.uses > 1 ? 's' : ''}`);
+    }
+    if (duration.minutes) {
+        parts.push(`${duration.minutes} minute${duration.minutes > 1 ? 's' : ''}`);
+    }
+    if (duration.hours) {
+        parts.push(`${duration.hours} hour${duration.hours > 1 ? 's' : ''}`);
+    }
+
+    let durationString = parts.join(' and ');
+    if (duration.concentration) {
+        durationString = `${durationString} (Concentration)`;
+    }
+
+    return durationString.trim();
+}
+
 function setupCombatant(c) {
     const status = {
         usedBonusAction: false, usedAction: false, usedReaction: false,
@@ -12,20 +40,23 @@ function setupCombatant(c) {
         usedSavageAttacker: false, canMakeGWMAttack: false, canMakeRampageAttack: false,
         actionUses: {}, spellSlots: deepCopy(c.spell_slots || {}),
         conditions: [], legendaryResistances: parseInt(c.abilities?.legendary_resistance) || 0,
+        concentratingOn: null,
         actionSurgeUses: c.abilities?.action_surge ? (parseInt(c.abilities.action_surge, 10) || 1) : 0,
         loggedCharmMessageThisTurn: false, thp: 0,
         abilities: {} // This will hold the state of abilities, like resource pools.
     };
 
     // Find any abilities that are resource pools and initialize their state.
-    for (const key in c.abilities) {
-        const ability = c.abilities[key];
-        if (typeof ability === 'object' && ability.pool !== undefined) {
-            status.abilities[key] = deepCopy(ability); // e.g. { pool: 5 }
-            // For lookups, ensure the canonical name from the library is also in the status object.
-            // This allows the simulation logic to find pools by name without depending on the global library.
-            if (ABILITIES_LIBRARY[key]) {
-                status.abilities[key].name = ABILITIES_LIBRARY[key].name;
+    if (c.abilities) {
+        for (const key in c.abilities) {
+            const ability = c.abilities[key];
+            if (typeof ability === 'object' && ability.pool !== undefined) {
+                status.abilities[key] = deepCopy(ability); // e.g. { pool: 5 }
+                // For lookups, ensure the canonical name from the library is also in the status object.
+                // This allows the simulation logic to find pools by name without depending on the global library.
+                if (ABILITIES_LIBRARY[key]) {
+                    status.abilities[key].name = ABILITIES_LIBRARY[key].name;
+                }
             }
         }
     }
@@ -35,9 +66,16 @@ function setupCombatant(c) {
         status
     };
 
+    // Ensure abilities object exists on the new combatant, as it might be missing from the input `c`.
+    if (!newCombatant.abilities) {
+        newCombatant.abilities = {};
+    }
+
     // Add the base AI ability to every combatant.
     newCombatant.abilities.base_ai_targeting = true;
-    newCombatant.abilities.system_repeating_saves = true;
+    newCombatant.abilities.system_turn_end_handler = true;
+    newCombatant.abilities.system_concentration_incapacitated = true;
+    newCombatant.abilities.system_concentration_save = true;
 
     // --- Subscribe reaction abilities to the EventBus ---
     // This is the final wiring step that connects the combatant's abilities to the event system.
@@ -66,7 +104,7 @@ function rollInitiative(combatants) {
         };
         const modifiedEventData = eventBus.dispatch('initiative_rolling', eventData);
 
-        const rollResult = rollD20(c, modifiedEventData.options);
+        const rollResult = rollD20(c, modifiedEventData.options, 'initiative', {});
         c.initiative = rollResult.rawRoll + c.initiative_mod;
     });
     combatants.sort((a, b) => b.initiative - a.initiative);
@@ -85,7 +123,7 @@ function hasCondition(c, name) {
     return !!(c.status && c.status.conditions && c.status.conditions.some(cond => cond.name === name));
 }
 
-function applyDamage(target, damage, type, isMagical = false) {
+function applyDamage(target, damage, type, isMagical = false, context = {}) {
     if (!type) {
         throw new Error('applyDamage was called without a damage type.');
     }
@@ -102,7 +140,8 @@ function applyDamage(target, damage, type, isMagical = false) {
         isMagical,
         isImmune: false,
         grantResistance: false,
-        grantVulnerability: false
+        grantVulnerability: false,
+        context
     };
     const modifiedEventData = eventBus.dispatch('damage_applying', damageApplyingEventData);
     // Use the potentially modified values for the rest of the calculation.
@@ -134,18 +173,17 @@ function applyDamage(target, damage, type, isMagical = false) {
         log(`${target.name} resists the ${typeLower} damage.`, 2);
     }
     
-    const totalDamageDealt = finalDamage;
-
     // --- Step 5: Apply damage to Temporary HP first ---
     // THP is lost before regular HP.
+    let damageToHp = finalDamage;
     if (target.status.thp > 0 && finalDamage > 0) {
         const damageToThp = Math.min(finalDamage, target.status.thp);
         target.status.thp -= damageToThp;
-        finalDamage -= damageToThp;
+        damageToHp -= damageToThp;
         log(`${target.name} loses ${damageToThp} temporary HP. (${target.status.thp} remaining)`, 2);
     }
 
-    target.hp -= finalDamage;
+    target.hp -= damageToHp;
     if (target.hp <= 0) {
         // Dispatch an event that abilities like Relentless Endurance can react to.
         // This allows them to potentially change the outcome (e.g., set HP back to 1).
@@ -157,10 +195,10 @@ function applyDamage(target, damage, type, isMagical = false) {
             log(`<span class="font-bold text-red-600">${target.name} is defeated!</span>`, 2);
         }
     }
-    return totalDamageDealt;
+    return finalDamage;
 }
 
-function makeSavingThrow(target, dc, saveType, sourceAction = {}) {
+function makeSavingThrow(target, dc, saveType, sourceAction = {}, context = {}) {
     // Dispatch an event that allows abilities to modify the save before the roll.
     const eventData = {
         target,
@@ -183,7 +221,7 @@ function makeSavingThrow(target, dc, saveType, sourceAction = {}) {
     const advantage = modifiedEventData.advantage;
     const disadvantage = modifiedEventData.disadvantage;
 
-    const rollResult = rollD20(target, { advantage, disadvantage });
+    const rollResult = rollD20(target, { advantage, disadvantage }, 'savingThrow', { dc, saveType, context });
     if (rollResult.lucky) log(`${target.name} uses Lucky to reroll a 1 on a save!`, 2);
 
     let total = rollResult.roll + (target.saves[saveType] || 0);
@@ -302,8 +340,7 @@ function resolveAttackRoll(attacker, target, action, context) {
     disadvantage = modifiedEventData.disadvantage;
     toHitBonus = modifiedEventData.toHitBonus;
     // damageBonus is handled in calculateAttackDamage
-
-    const rollResult = rollD20(attacker, { advantage, disadvantage });
+    const rollResult = rollD20(attacker, { advantage, disadvantage }, 'attackRoll', { context });
     if (rollResult.lucky) log(`${attacker.name} uses Lucky to reroll a 1 on an attack!`, 1);
 
     let totalToHit = rollResult.roll + toHitBonus;
@@ -392,7 +429,7 @@ function _handleOnHitEffect(attacker, target, onHitEffect, context, crit = false
 
     // --- Step 1: Handle Saving Throw ---
     if (onHitEffect.save) {
-        saveResult = makeSavingThrow(target, onHitEffect.save.dc, onHitEffect.save.type, onHitEffect);
+        saveResult = makeSavingThrow(target, onHitEffect.save.dc, onHitEffect.save.type, onHitEffect, context);
         if (saveResult.passed) {
             log(`${target.name} succeeds on the saving throw.`, 2);
         } else {
@@ -424,7 +461,7 @@ function _handleOnHitEffect(attacker, target, onHitEffect, context, crit = false
         }
 
         if (damageAmount > 0) {
-            const finalDamage = applyDamage(target, damageAmount, onHitEffect.damageType, !!onHitEffect.isMagical);
+            const finalDamage = applyDamage(target, damageAmount, onHitEffect.damageType, !!onHitEffect.isMagical, context);
             log(`${target.name} takes an additional ${finalDamage} ${onHitEffect.damageType} damage.`, 3);
         }
     }
@@ -451,7 +488,7 @@ function _handleOnHitEffect(attacker, target, onHitEffect, context, crit = false
 
         // Apply all unique, most severe effects.
         for (const effect of effectsToApply.values()) {
-            applyCondition(attacker, target, effect, onHitEffect.save?.dc);
+            applyCondition(attacker, target, effect, onHitEffect.save?.dc, context);
         }
     }
 }
@@ -462,7 +499,7 @@ function performAttackAction(attacker, target, action, context) {
     if (hit) {
         const { totalDamage, damageBreakdown } = calculateAttackDamage(attacker, target, action, context, crit, damageBonus, advantage, disadvantage, chargeActivated);
         
-        const finalDamage = applyDamage(target, totalDamage, action.damageType, !!action.isMagical);
+        const finalDamage = applyDamage(target, totalDamage, action.damageType, !!action.isMagical, context);
         log(`<span class="text-green-400">Hits</span> for <span class="font-bold text-yellow-300">${finalDamage}</span> damage (${damageBreakdown.join(' + ')}). ${target.name} HP: ${target.hp}`, 2);
         
         // Handle generic on-hit effects (e.g., poison, bonus fire damage)
@@ -474,10 +511,10 @@ function performAttackAction(attacker, target, action, context) {
         // We need to get the full list of combatants to correctly update engagement status for everyone.
         const allCombatants = [...context.allies, ...context.opponents, ...(context.downedAllies || [])];
         // Future improvement: The context could be enriched to always contain the full list.
-        _checkAndDispatchDefeat(attacker, target, allCombatants);
+        _checkAndDispatchDefeat(attacker, target, allCombatants, context);
 
         // Dispatch a final event for abilities that trigger after a hit is fully resolved (e.g., Charge save).
-        eventBus.dispatch('post_attack_hit', { attacker, target, action, chargeActivated });
+        eventBus.dispatch('post_attack_hit', { attacker, target, action, chargeActivated, context });
     }
 
     // --- Engagement Mechanic ---
@@ -493,18 +530,47 @@ function performAttackAction(attacker, target, action, context) {
     }
 }
 
+/**
+ * Removes any active concentration effects from their targets when the caster's concentration is broken.
+ * @param {object} caster - The combatant who is losing concentration.
+ * @param {object} context - The current combat context.
+ */
+function breakConcentration(caster, context) {
+    if (!caster.status.concentratingOn) return;
+
+    const { spellName, targetIds } = caster.status.concentratingOn;
+    log(`${caster.name} loses concentration on ${spellName}.`, 1);
+
+    const allCombatants = [...context.allies, ...context.opponents, ...(context.downedAllies || [])];
+    targetIds.forEach(targetId => {
+        const target = allCombatants.find(c => c.id === targetId);
+        if (target) {
+            target.status.conditions = target.status.conditions.filter(c => !(c.isConcentration && c.sourceId === caster.id));
+        }
+    });
+
+    caster.status.concentratingOn = null;
+}
+
 function performSaveAction(attacker, action, context, targets) {
+    const isSpellLike = (typeof action.spellLevel === 'number' && action.spellLevel >= 0) || !!action.isMagical;
+    const verb = isSpellLike ? 'casts' : 'uses';
     if (targets.length === 0) {
-        log(`${attacker.name} tries to cast ${action.name}, but there are no valid targets.`, 1);
+        const baseVerb = isSpellLike ? 'cast' : 'use';
+        log(`${attacker.name} tries to ${baseVerb} ${action.name}, but there are no valid targets.`, 1);
         return;
     }
 
-    log(`${attacker.name} casts ${action.name}, targeting ${targets.map(t=>t.name).join(', ')}.`, 1);
+    log(`${attacker.name} ${verb} ${action.name}, targeting ${targets.map(t=>t.name).join(', ')}.`, 1);
+
+    const isConcentration = action.effect?.duration?.concentration;
+    const failedTargets = [];
 
     targets.forEach(target => {
         // Pass the whole action object to provide full context for the save.
-        const saveResult = makeSavingThrow(target, action.save.dc, action.save.type, action);
+        const saveResult = makeSavingThrow(target, action.save.dc, action.save.type, action, context);
         if (!saveResult.passed) { // Failed save
+            failedTargets.push(target);
             log(`Target fails the save.`, 2);
             // Handle damage on fail
             if (action.damage) {
@@ -522,17 +588,18 @@ function performSaveAction(attacker, action, context, targets) {
                 };
                 const modifiedDamageRolledEventData = eventBus.dispatch('damage_rolled', damageRolledEventData);
                 baseDamage = modifiedDamageRolledEventData.initialDamage;
-                const finalDamage = applyDamage(target, baseDamage, action.damageType, !!action.isMagical);
+                const finalDamage = applyDamage(target, baseDamage, action.damageType, !!action.isMagical, context);
                 log(`Takes ${finalDamage} damage.`, 3);
             }
             // Handle effect on fail
             if (action.effect?.name && action.effect?.duration) {
-                applyCondition(attacker, target, action.effect, action.save.dc);
+                const effectToApply = { ...action.effect, isConcentration };
+                applyCondition(attacker, target, effectToApply, action.save.dc, context);
             }
         } else { // Successful save
             if (action.half && action.damage) {
                 const damage = Math.floor(rollDice(action.damage) / 2);
-                const finalDamage = applyDamage(target, damage, action.damageType, !!action.isMagical);
+                const finalDamage = applyDamage(target, damage, action.damageType, !!action.isMagical, context);
                 log(`Target saves, but takes ${finalDamage} damage.`, 2);
             } else {
                 log(`Target saves, no effect.`, 2);
@@ -540,8 +607,21 @@ function performSaveAction(attacker, action, context, targets) {
         }
         // After all effects of the save are resolved, check if the target was defeated.
         const allCombatants = [...context.allies, ...context.opponents, ...(context.downedAllies || [])];
-        _checkAndDispatchDefeat(attacker, target, allCombatants);
+        _checkAndDispatchDefeat(attacker, target, allCombatants, context);
     });
+
+    // After all saves are resolved, set the concentration state for the caster
+    // based on which targets actually failed their saves.
+    if (isConcentration && failedTargets.length > 0) {
+        if (attacker.status.concentratingOn) {
+            breakConcentration(attacker, context);
+        }
+        attacker.status.concentratingOn = {
+            spellName: action.name,
+            targetIds: failedTargets.map(t => t.id)
+        };
+        log(`${attacker.name} is now concentrating on ${action.name}.`, 1);
+    }
 }
 
 function performHealAction(attacker, action, context) {
@@ -641,36 +721,68 @@ function performEffectAction(attacker, action, context) {
     const effectDef = CONDITIONS_LIBRARY[action.effect.name];
     const isBeneficial = effectDef?.type === 'beneficial';
 
-    if (isBeneficial) {
-        if (targeting === 'self') {
-            potentialTargets = [attacker];
-        } else if (targeting === 'other') {
-            potentialTargets = context.allies.filter(a => a.id !== attacker.id);
-        } else { // 'any'
-            potentialTargets = context.allies;
-        }
-    } else {
-        potentialTargets = getValidTargets(attacker, action, context);
+    // Beneficial effects target allies, and harmful effects target opponents.
+    const targetsOpponents = !isBeneficial;
+    if (targeting === 'self') {
+        potentialTargets = [attacker];
+    } else if (targeting === 'other') {
+        // 'other' always means allies other than self for beneficial effects.
+        potentialTargets = context.allies.filter(a => a.id !== attacker.id);
+    } else { // 'any'
+        potentialTargets = targetsOpponents ? getValidTargets(attacker, action, context) : context.allies;
     }
 
-    const targets = potentialTargets.slice(0, numTargets);
+    let targets = [];
+    if (potentialTargets.length > 0) {
+        if (numTargets === 1) {
+            // For single-target, use AI to choose the best one.
+            const chosenTarget = chooseTarget(attacker, potentialTargets);
+            if (chosenTarget) targets.push(chosenTarget);
+        } else {
+            // For multi-target, we take a slice from the start for deterministic testing.
+            targets = potentialTargets.slice(0, numTargets);
+        }
+    }
 
+    const isConcentration = action.effect?.duration?.concentration;
+
+    const isSpellLike = (typeof action.spellLevel === 'number' && action.spellLevel >= 0) || !!action.isMagical;
     if (targets.length === 0) {
-        log(`${attacker.name} tries to use ${action.name}, but there are no valid targets.`, 1);
+        const baseVerb = isSpellLike ? 'cast' : 'use';
+        log(`${attacker.name} tries to ${baseVerb} ${action.name}, but there are no valid targets.`, 1);
         return;
     }
 
     const targetNames = targets.map(t => t.name).join(', ');
+    const verb = isSpellLike ? 'casts' : 'uses';
     let logMessage;
     if (targets.length === 1 && targets[0].id === attacker.id) {
-        logMessage = `${attacker.name} uses ${action.name}.`;
+        logMessage = `${attacker.name} ${verb} ${action.name}.`;
     } else {
-        logMessage = `${attacker.name} casts ${action.name}, affecting ${targetNames}.`;
+        logMessage = `${attacker.name} ${verb} ${action.name}, affecting ${targetNames}.`;
     }
     log(logMessage, 1);
 
+    // For effect actions, concentration applies to all targets immediately.
+    if (isConcentration) {
+        if (attacker.status.concentratingOn) {
+            breakConcentration(attacker, context);
+        }
+        attacker.status.concentratingOn = {
+            spellName: action.name,
+            targetIds: targets.map(t => t.id)
+        };
+        log(`${attacker.name} is now concentrating on ${action.name}.`, 1);
+    }
+
     targets.forEach(t => {
-        applyCondition(attacker, t, action.effect);
+        // Create a temporary effect object to pass to applyCondition.
+        // This allows us to add the isConcentration flag without modifying the base action.
+        const effectToApply = { ...action.effect };
+        if (isConcentration) {
+            effectToApply.isConcentration = true;
+        }
+        applyCondition(attacker, t, effectToApply, null, context);
     });
 }
 
@@ -764,7 +876,6 @@ function performAction(attacker, action, context, isSubAction = false) {
             performEffectAction(attacker, action, freshContext);
             break;
         default:
-            // This could happen for actions that have no defining properties, like the Dodge action.
             if (action.name === 'Dodge') {
                 performEffectAction(attacker, action, freshContext);
             }
@@ -845,14 +956,13 @@ function getActionScore(action, attacker, context) {
         if (possibleTargets.length >= numActionTargets) {
             damageScore = calculateAverageDamage(action.damage, attacker) * numActionTargets;
         }
-        score += damageScore;
 
         // Dispatch an event to allow abilities to modify the action's score based on potential extra damage.
         const actionScoringEvent = {
             action,
             attacker,
             context,
-            score: damageScore // Start with the base damage score
+            score: damageScore
         };
         const modifiedEvent = eventBus.dispatch('action_scoring', actionScoringEvent);
         score += modifiedEvent.score;
@@ -914,10 +1024,15 @@ function handleTurnStart(attacker) {
     attacker.status.canMakeRampageAttack = false;
     attacker.status.loggedCharmMessageThisTurn = false;
     attacker.status.conditions = attacker.status.conditions.filter(c => {
-        // If the condition has a duration, decrement it and check if it has expired.
-        if (typeof c.duration === 'number') {
-            c.duration--;
-            return c.duration > 0;
+        // If the condition has a round-based duration, decrement it and check if it has expired.
+        if (c.duration?.rounds) {
+            c.duration.rounds--;
+            if (c.duration.rounds <= 0) {
+                const conditionDef = CONDITIONS_LIBRARY[c.name];
+                const displayName = conditionDef ? conditionDef.name : c.name;
+                log(`The ${displayName} effect on ${attacker.name} has expired.`, 1);
+                return false;
+            }
         }
         // If the condition has no duration (e.g., prone), it persists until removed by another effect.
         return true;
@@ -992,6 +1107,7 @@ function executeTurn(attacker, allCombatants) {
     if (attacker.hp <= 0) return;
 
     handleTurnStart(attacker);
+    const context = getContext(attacker, allCombatants);
 
     // Dispatch an event to check for turn-skipping conditions like incapacitated.
     const actionAttemptingEvent = {
@@ -1004,8 +1120,6 @@ function executeTurn(attacker, allCombatants) {
     if (!modifiedEvent.canAct) {
         log(`${attacker.name} is incapacitated by ${modifiedEvent.reason} and cannot take actions.`, 1);
     } else {
-        const context = getContext(attacker, allCombatants);
-
         handlePreActionBonusActions(attacker, context);
         handleAction(attacker, context);
 
@@ -1020,7 +1134,28 @@ function executeTurn(attacker, allCombatants) {
     }
 
     // Dispatch an event for end-of-turn effects like repeating saves.
-    eventBus.dispatch('turn_ended', { combatant: attacker });
+    eventBus.dispatch('turn_ended', { combatant: attacker, context: context, allCombatants: allCombatants });
+}
+
+function consumeUse(reactor, conditionInstance, context) {
+    if (conditionInstance.duration?.uses) {
+        conditionInstance.duration.uses--;
+        if (conditionInstance.duration.uses <= 0) {
+            const conditionDef = CONDITIONS_LIBRARY[conditionInstance.name];
+            const displayName = conditionDef ? conditionDef.name : conditionInstance.name;
+            log(`The ${displayName} effect on ${reactor.name} has been consumed.`, 1);
+            reactor.status.conditions = reactor.status.conditions.filter(c => c !== conditionInstance);
+
+            // If the consumed condition was a concentration effect, we need to break the caster's concentration.
+            if (conditionInstance.isConcentration && context) {
+                const allCombatants = [...context.allies, ...context.opponents, ...(context.downedAllies || [])];
+                const caster = allCombatants.find(c => c.id === conditionInstance.sourceId);
+                if (caster) {
+                    breakConcentration(caster, context);
+                }
+            }
+        }
+    }
 }
 
 function runSingleSimulation(teamA, teamB, logActions = false) {
@@ -1076,10 +1211,10 @@ function runSingleSimulation(teamA, teamB, logActions = false) {
  * @param {object} eventData - The data associated with the triggering event.
  * @returns {number} A numerical score. Higher is better.
  */
-function getReactionScore(reactor, ability, eventData) {
+function getReactionScore(reactor, ability, eventData, conditionInstance = null) {
     // Delegate scoring to the ability definition if it has a custom getScore method.
     if (typeof ability.getScore === 'function') {
-        return ability.getScore(reactor, eventData);
+        return ability.getScore(reactor, eventData, conditionInstance);
     }
 
     // If no specific getScore method is defined, return a default non-zero score to trigger the reaction.
@@ -1106,14 +1241,16 @@ function grantTemporaryHp(target, amount, sourceName) {
  * @param {object} target - The combatant receiving the condition.
  * @param {object} effect - The condition effect object (e.g., { name: 'poisoned', duration: 2 }).
  * @param {number|null} saveDC - The DC of the save that triggered this effect, if any.
+ * @param {object} context - The current combat context.
  */
-function applyCondition(attacker, target, effect, saveDC = null) {
+function applyCondition(attacker, target, effect, saveDC = null, context = {}) {
     // Dispatch an event to check for immunities or modifications.
     const eventData = {
         attacker,
         target,
         condition: effect,
-        isImmune: false
+        isImmune: false,
+        context
     };
     const modifiedEventData = eventBus.dispatch('condition_applying', eventData);
 
@@ -1132,12 +1269,22 @@ function applyCondition(attacker, target, effect, saveDC = null) {
     const newCondition = deepCopy(effect);
     newCondition.sourceId = attacker.id;
 
+    // If a turn-based duration is relative to the caster (or self-applied), we need to add 1 to account for the current turn.
+    // A user-inputted duration of "1 turn" should last until the end of the *next* turn.
+    // This makes the UI more intuitive.
+    if (newCondition.duration?.turnEnds && (newCondition.duration.relativeTo === 'source' || attacker.id === target.id)) {
+        newCondition.duration.turnEnds++;
+    }
+
     // If the effect allows for repeating saves, store the original DC on the condition instance.
     if (newCondition.repeating_save && saveDC !== null) {
         newCondition.saveDC = saveDC;
     }
 
     target.status.conditions.push(newCondition);
+
+    // Dispatch a new event AFTER the condition has been successfully applied.
+    eventBus.dispatch('condition_applied', { ...eventData, condition: newCondition });
 
     const conditionDef = CONDITIONS_LIBRARY[effect.name];
     if (conditionDef && typeof conditionDef.getLogPhrase === 'function') {
@@ -1146,9 +1293,13 @@ function applyCondition(attacker, target, effect, saveDC = null) {
         log(message, 3);
     } else {
         // Use the default generic message.
-        let logMessage = `${target.name} is now affected by ${effect.name}`;
+        const displayName = conditionDef?.name || effect.name;
+        let logMessage = `${target.name} is now affected by ${displayName}`;
         if (effect.duration) {
-            logMessage += ` for ${effect.duration} rounds`;
+            const durationString = _formatDurationForLog(effect.duration);
+            if (durationString) {
+                logMessage += ` for ${durationString}`;
+            }
         }
         logMessage += ` (from ${attacker.name}).`;
         log(logMessage, 3);
@@ -1159,14 +1310,13 @@ function applyCondition(attacker, target, effect, saveDC = null) {
  * Checks if a target was defeated and dispatches the 'creature_defeated' event if so.
  * @param {object} victor - The combatant who dealt the final blow.
  * @param {object} defeated - The combatant who was defeated.
+ * @param {object} allCombatants - The array of all combatants in the simulation.
+ * @param {object} context - The current combat context.
  * @private
  */
-function _checkAndDispatchDefeat(victor, defeated, allCombatants) {
+function _checkAndDispatchDefeat(victor, defeated, allCombatants, context) {
     if (defeated.hp === 0) {
-        eventBus.dispatch('creature_defeated', {
-            victor: victor,
-            defeated: defeated
-        });
+        eventBus.dispatch('creature_defeated', { victor, defeated, context });
 
         // After a creature is defeated, remove it from everyone's engagement list.
         // We must iterate over ALL combatants, not just those in the current context.

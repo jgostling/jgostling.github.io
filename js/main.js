@@ -63,6 +63,18 @@ function closeAllTooltips() {
     });
 }
 
+function _updateRelativeToCasterVisibility() {
+    const durationContainer = document.getElementById('duration-components-container');
+    if (!durationContainer) return;
+
+    const relativeContainer = document.querySelector('[data-cy="relative-to-caster-container"]');
+    if (relativeContainer) {
+        const allUnitSelects = durationContainer.querySelectorAll('.duration-unit');
+        const shouldShow = Array.from(allUnitSelects).some(select => select.value === 'turnEnds');
+        relativeContainer.style.display = shouldShow ? '' : 'none';
+    }
+}
+
 function handleDelegatedClick(event) {
     const target = event.target.closest('[data-action]');
     if (!target) return;
@@ -133,6 +145,28 @@ function handleDelegatedClick(event) {
         case 'back-to-main-editor':
             renderMainEditorInDrawer();
             break;
+        case 'add-duration-component': {
+            const container = document.getElementById('duration-components-container');
+            const newRow = document.createElement('div');
+            newRow.className = 'duration-component-row flex items-center gap-2 bg-gray-900 p-2 rounded';
+            newRow.innerHTML = `
+                <input type="number" class="duration-value form-input w-20 text-center" value="1">
+                <select class="duration-unit form-select flex-grow">
+                    <option value="rounds">Rounds (at start)</option>
+                    <option value="turnEnds">Turns (at end)</option>
+                    <option value="uses">Uses</option>
+                    <option value="minutes">Minutes</option>
+                    <option value="hours">Hours</option>
+                </select>
+                <button data-action="remove-duration-component" class="btn btn-danger p-1 text-xs">&times;</button>
+            `;
+            container.appendChild(newRow);
+            break;
+        }
+        case 'remove-duration-component':
+            target.closest('.duration-component-row').remove();
+            _updateRelativeToCasterVisibility();
+            break;
         case 'toggle-accordion': {
             const clickedItem = target.closest('.accordion-item');
             const wasActive = clickedItem.classList.contains('active');
@@ -191,8 +225,63 @@ function handleDelegatedClick(event) {
     }
 }
 
+function handleDelegatedChange(event) {
+    const target = event.target;
+
+    // When the user selects a different condition in the effect editor,
+    // we need to re-render the form to show/hide the resistance type selector.
+    if (target.id === 'action-editor-effect-name' || target.id === 'action-editor-onhit-effect-name') {
+        const drawerContent = document.getElementById('editor-drawer-content');
+        
+        // --- Preserve State ---
+        // Find which accordion is currently open so we can restore it after re-rendering.
+        const activeAccordionHeader = drawerContent.querySelector('.accordion-item.active .accordion-header');
+        const activeAccordionText = activeAccordionHeader ? activeAccordionHeader.textContent : null;
+        
+        const currentAction = readActionFromForm(); // Read current values to preserve them
+        const { isNew } = appState.getActionEditorState();
+        appState.getActionEditorState().action = currentAction; // Update state with current form data
+
+        // --- Re-render the correct form based on its type ---
+        const formType = currentAction.type;
+        let formHTML;
+        switch (formType) {
+            case 'attack':
+                formHTML = getAttackActionFormHTML(currentAction, isNew);
+                break;
+            case 'save':
+                formHTML = getSaveActionFormHTML(currentAction, isNew);
+                break;
+            case 'effect':
+            default:
+                formHTML = getEffectActionFormHTML(currentAction, isNew);
+                break;
+        }
+        drawerContent.innerHTML = formHTML;
+
+        // --- Restore State ---
+        // Close the default open accordion, which is always the first one.
+        const defaultActiveItem = drawerContent.querySelector('.accordion-item.active');
+        if (defaultActiveItem) {
+            defaultActiveItem.classList.remove('active');
+        }
+        // If there was an active accordion before, find it by its text and re-open it.
+        if (activeAccordionText) {
+            const headers = drawerContent.querySelectorAll('.accordion-header');
+            const newActiveHeader = Array.from(headers).find(h => h.textContent === activeAccordionText);
+            if (newActiveHeader) {
+                newActiveHeader.closest('.accordion-item').classList.add('active');
+            }
+        }
+    } else if (target.classList.contains('duration-unit')) {
+        // When a duration unit is changed, we need to show/hide the 'relativeTo' checkbox.
+        _updateRelativeToCasterVisibility();
+    }
+}
+
 function initializeApp() {
     document.body.addEventListener('click', handleDelegatedClick);
+    document.body.addEventListener('change', handleDelegatedChange);
 
     // Create and configure hidden file inputs for testability and functionality.
     ['A', 'B'].forEach(team => {

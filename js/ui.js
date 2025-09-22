@@ -394,6 +394,15 @@ function _syncEditorFormState() {
     // to prevent data loss when re-rendering the modal.
     const currentFormState = readCombatantFromForm(stateCombatant?.id);
     appState.getEditorState().combatant = currentFormState;
+
+    // If the action editor form is present in the DOM, sync its state too.
+    // This is crucial for handling re-renders from `change` events within the action form.
+    if (document.getElementById('action-editor-form-type')) {
+        const { actionEditorState } = appState.getEditorState();
+        if (actionEditorState) {
+            actionEditorState.action = readActionFromForm();
+        }
+    }
 }
 
 function configureSelectedAbility() {
@@ -628,6 +637,86 @@ function renderMainEditorInDrawer() {
     updateAbilityDescription();
 }
 
+function _getDurationComponentsHTML(effect) {
+    const duration = effect?.duration || {};
+    const components = Object.entries(duration).filter(([key]) => !['concentration', 'relativeTo'].includes(key));
+
+    const concentrationChecked = duration.concentration ? 'checked' : '';
+
+    const rowsHTML = components.map(([unit, value]) => {
+        return `
+            <div class="duration-component-row flex items-center gap-2 bg-gray-900 p-2 rounded">
+                <input type="number" class="duration-value form-input w-20 text-center" value="${value}">
+                <select class="duration-unit form-select flex-grow">
+                    <option value="rounds" ${unit === 'rounds' ? 'selected' : ''}>Rounds (at start)</option>
+                    <option value="turnEnds" ${unit === 'turnEnds' ? 'selected' : ''}>Turns (at end)</option>
+                    <option value="uses" ${unit === 'uses' ? 'selected' : ''}>Uses</option>
+                    <option value="minutes" ${unit === 'minutes' ? 'selected' : ''}>Minutes</option>
+                    <option value="hours" ${unit === 'hours' ? 'selected' : ''}>Hours</option>
+                </select>
+                <button data-action="remove-duration-component" class="btn btn-danger p-1 text-xs">&times;</button>
+            </div>
+        `;
+    }).join('');
+
+    const showRelativeToCaster = components.some(([unit]) => unit === 'turnEnds');
+    const relativeToCasterHTML = `
+        <div data-cy="relative-to-caster-container" style="display: ${showRelativeToCaster ? '' : 'none'};">
+            <div class="flex items-center gap-2 mt-2 ml-4">
+                <input type="checkbox" id="action-editor-duration-relative" class="form-checkbox" ${duration.relativeTo === 'source' ? 'checked' : ''}>
+                <label for="action-editor-duration-relative">Relative to Caster</label>
+                ${_getTooltipHTML("If checked, this duration will count down based on the original caster's turn, not the target's. Useful for effects like True Strike or Vicious Mockery.")}
+            </div>
+        </div>
+    `;
+
+    return `
+        <div class="mt-2">
+            <div id="duration-components-container" class="space-y-2">${rowsHTML}</div>
+            ${relativeToCasterHTML}
+            <button data-action="add-duration-component" class="btn btn-secondary w-full mt-2 text-sm">Add Duration Component</button>
+            <div class="flex items-center gap-2 mt-3 pt-3 border-t border-gray-600">
+                <input type="checkbox" id="action-editor-duration-concentration" class="form-checkbox" ${concentrationChecked}>
+                <label for="action-editor-duration-concentration">Requires Concentration</label>
+                ${_getTooltipHTML("If checked, this effect requires the caster to maintain concentration. Taking damage, being incapacitated, or casting another concentration spell can break it.")}
+            </div>
+        </div>
+    `;
+}
+
+function _getExtraConfigHTMLForEffect(effect) {
+    let extraConfigHTML = '';
+    const selectedConditionKey = effect?.name;
+    if (selectedConditionKey) {
+        const conditionDef = CONDITIONS_LIBRARY[selectedConditionKey];
+        if (conditionDef && conditionDef.configurable === 'resistance_types') {
+            const selectedTypes = effect?.types || [];
+            const damageTypeOptions = DAMAGE_TYPES.map(type => 
+                `<option value="${type}" ${selectedTypes.includes(type) ? 'selected' : ''}>${type.charAt(0).toUpperCase() + type.slice(1)}</option>`
+            ).join('');
+
+            extraConfigHTML = `
+                <div class="mt-2" data-cy="resistance-types-config">
+                    <label for="action-editor-resistance-types" class="block font-semibold mb-1">Resistance Types</label>
+                    <select id="action-editor-resistance-types" class="form-select w-full" multiple>
+                        ${damageTypeOptions}
+                    </select>
+                </div>
+            `;
+        }
+        if (conditionDef && conditionDef.configurable === 'die') {
+            const dieValue = effect?.die || '';
+            extraConfigHTML = `
+                <div class="mt-2" data-cy="die-config">
+                    <label for="action-editor-effect-die" class="block font-semibold mb-1">${conditionDef.name} Die</label>
+                    <input type="text" id="action-editor-effect-die" class="form-input w-full" value="${dieValue}" placeholder="e.g., 1d4 or -1d4">
+                </div>
+            `;
+        }
+    }
+    return extraConfigHTML;
+}
+
 function getActionWizardSelectionHTML() {
     return `
         <div class="flex-shrink-0">
@@ -707,6 +796,8 @@ function getAttackActionFormHTML(action, isNew) {
         .map(([key, def]) => `<option value="${key}" ${action.on_hit_effect?.effect?.name === key ? 'selected' : ''}>${def.name}</option>`)
         .join('');
 
+    const extraConfigHTML = _getExtraConfigHTMLForEffect(action.on_hit_effect?.effect);
+
     return `
         <div class="flex-shrink-0">
             <h3 class="font-semibold text-lg mb-4 text-white">${isNew ? 'New Attack Action' : `Editing: ${action.name}`}</h3>
@@ -739,8 +830,8 @@ function getAttackActionFormHTML(action, isNew) {
                     <button type="button" class="accordion-header" data-action="toggle-accordion">Effect on Hit</button>
                     <div class="accordion-content">
                         <div class="p-3 space-y-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-300 mb-1">Bonus Damage</label>
+                            <div class="space-y-2">
+                                <label class="block text-sm font-medium text-gray-300">Bonus Damage</label>
                                 <div class="grid grid-cols-2 gap-2">
                                     <input type="text" id="action-editor-onhit-damage" placeholder="e.g., 7d6" class="form-input" value="${action.on_hit_effect?.damage || ''}">
                                     <select id="action-editor-onhit-damage-type" class="form-select">
@@ -749,8 +840,8 @@ function getAttackActionFormHTML(action, isNew) {
                                     </select>
                                 </div>
                             </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-300 mb-1">Saving Throw</label>
+                            <div class="space-y-2">
+                                <label class="block text-sm font-medium text-gray-300">Saving Throw</label>
                                 <div class="grid grid-cols-3 gap-2">
                                     <input type="number" id="action-editor-onhit-save-dc" placeholder="DC" class="form-input" value="${action.on_hit_effect?.save?.dc || ''}">
                                     <select id="action-editor-onhit-save-type" class="form-select">
@@ -763,15 +854,14 @@ function getAttackActionFormHTML(action, isNew) {
                                     </select>
                                 </div>
                             </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-300 mb-1">Condition on Fail</label>
-                                <div class="grid grid-cols-2 gap-2">
-                                    <select id="action-editor-effect-name" class="form-select">
-                                        <option value="">-- No Effect --</option>
-                                        ${conditionOptions}
-                                    </select>
-                                    <input type="number" id="action-editor-effect-duration" placeholder="Duration (rounds)" class="form-input" value="${action.on_hit_effect?.effect?.duration || ''}">
-                                </div>
+                            <div class="space-y-2">
+                                <label class="block text-sm font-medium text-gray-300">Condition on Fail</label>
+                                <select id="action-editor-onhit-effect-name" class="form-select w-full">
+                                    <option value="">-- No Effect --</option>
+                                    ${conditionOptions}
+                                </select>
+                                ${extraConfigHTML}
+                                ${_getDurationComponentsHTML(action.on_hit_effect?.effect)}
                             </div>
                         </div>
                     </div>
@@ -791,6 +881,8 @@ function getSaveActionFormHTML(action, isNew) {
         .sort()
         .map(key => `<option value="${key}" ${action.effect?.name === key ? 'selected' : ''}>${CONDITIONS_LIBRARY[key].name}</option>`)
         .join('');
+
+    const extraConfigHTML = _getExtraConfigHTMLForEffect(action.effect);
 
     return `
         <div class="flex-shrink-0">
@@ -832,12 +924,13 @@ function getSaveActionFormHTML(action, isNew) {
                 <div class="accordion-item">
                     <button type="button" class="accordion-header" data-action="toggle-accordion">Effect on Fail</button>
                     <div class="accordion-content">
-                        <div class="p-3 grid grid-cols-2 gap-4">
-                            <select id="action-editor-effect-name" class="form-select">
+                        <div class="p-3">
+                            <select id="action-editor-effect-name" class="form-select w-full">
                                 <option value="">-- No Effect --</option>
                                 ${conditionOptions}
                             </select>
-                            <input type="number" id="action-editor-effect-duration" placeholder="Duration (rounds)" class="form-input" value="${action.effect?.duration || ''}">
+                            ${extraConfigHTML}
+                            ${_getDurationComponentsHTML(action.effect)}
                         </div>
                     </div>
                 </div>
@@ -917,10 +1010,13 @@ function getPoolHealActionFormHTML(action, isNew) {
 }
 
 function getEffectActionFormHTML(action, isNew) {
-    const conditionOptions = Object.keys(CONDITIONS_LIBRARY)
-        .sort()
-        .map(key => `<option value="${key}" ${action.effect?.name === key ? 'selected' : ''}>${CONDITIONS_LIBRARY[key].name}</option>`)
+    const conditionOptions = Object.entries(CONDITIONS_LIBRARY)
+        .filter(([, def]) => def.category !== 'internal')
+        .sort(([, a], [, b]) => a.name.localeCompare(b.name))
+        .map(([key, def]) => `<option value="${key}" ${action.effect?.name === key ? 'selected' : ''}>${def.name}</option>`)
         .join('');
+
+    const extraConfigHTML = _getExtraConfigHTMLForEffect(action.effect);
 
     return `
         <div class="flex-shrink-0">
@@ -935,12 +1031,13 @@ function getEffectActionFormHTML(action, isNew) {
                 <div class="accordion-item">
                     <button type="button" class="accordion-header" data-action="toggle-accordion">Effect</button>
                     <div class="accordion-content">
-                        <div class="p-3 grid grid-cols-2 gap-4">
-                            <select id="action-editor-effect-name" class="form-select">
+                        <div class="p-3">
+                            <select id="action-editor-effect-name" class="form-select w-full">
                                 <option value="">-- No Effect --</option>
                                 ${conditionOptions}
                             </select>
-                            <input type="number" id="action-editor-effect-duration" placeholder="Duration (rounds)" class="form-input" value="${action.effect?.duration || ''}">
+                            ${extraConfigHTML}
+                            ${_getDurationComponentsHTML(action.effect)}
                         </div>
                     </div>
                 </div>
