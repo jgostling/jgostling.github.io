@@ -443,6 +443,31 @@ var CONDITIONS_LIBRARY = {
         }
     },
     // Custom / Other
+    cannot_react: {
+        name: "Cannot React",
+        description: "A creature under this effect cannot take reactions.",
+        effects: { cannot: ['takeReactions'] }
+    },
+    no_healing: {
+        name: "Cannot Regain Hit Points",
+        description: "A creature under this effect cannot regain hit points.",
+        type: 'harmful',
+        trigger: {
+            event: 'heal_applying'
+        },
+        conditions: (reactor, eventData) => {
+            // The reactor is the one with the condition.
+            // We need to check if the reactor is the one being healed.
+            return reactor.id === eventData.target.id;
+        },
+        effect: (reactor, eventData) => {
+            log(`${reactor.name} cannot regain hit points.`, 2);
+            eventData.amount = 0;
+        },
+        getLogPhrase: (target, attacker, effect) => {
+            return `${target.name} can no longer regain hit points.`;
+        }
+    },
     inspired: {
         name: "Inspired",
         description: "Has a Bardic Inspiration die to add to one attack roll, ability check, or saving throw.",
@@ -626,9 +651,18 @@ var CONDITIONS_LIBRARY = {
             return reactor.id === eventData.attacker.id;
         },
         effect: (reactor, eventData, conditionInstance) => {
+            // If the condition is targeted (like from Guiding Bolt), check if the attack target matches the source.
+            if (conditionInstance.sourceId && conditionInstance.sourceId !== eventData.target.id) {
+                return; // Wrong target, do nothing.
+            }
+
             // Apply advantage and log.
             eventData.advantage = true;
-            log(`${reactor.name} has advantage on the attack.`, 2);
+            if (conditionInstance.sourceId) {
+                log(`${reactor.name} has advantage on the attack against ${eventData.target.name}.`, 2);
+            } else {
+                log(`${reactor.name} has advantage on the attack.`, 2);
+            }
 
             // Consume the use, if applicable.
             consumeUse(reactor, conditionInstance, eventData.context);
@@ -697,13 +731,72 @@ var CONDITIONS_LIBRARY = {
             return reactor.id === eventData.attacker.id;
         },
         effect: (reactor, eventData, conditionInstance) => {
-            log(`${reactor.name} has disadvantage on the attack.`, 2);
+            // If the condition is targeted (like from Chill Touch), check if the attack target matches the source.
+            if (conditionInstance.sourceId && conditionInstance.sourceId !== eventData.target.id) {
+                return; // Wrong target, do nothing.
+            }
+
             eventData.disadvantage = true;
+            if (conditionInstance.sourceId) {
+                log(`${reactor.name} has disadvantage on the attack against ${eventData.target.name}.`, 2);
+            } else {
+                log(`${reactor.name} has disadvantage on the attack.`, 2);
+            }
             consumeUse(reactor, conditionInstance, eventData.context);
         },
         getLogPhrase: (target, attacker, effect) => {
             // This condition provides a full, custom log message.
             return `${target.name} is now affected by Disadvantage on Attacks Made.`;
+        }
+    },
+    disadvantage_on_attacks_received: {
+        name: "Disadvantage on Attacks Received",
+        description: "Attack rolls made against this creature have disadvantage. Can be limited to a specific attacker.",
+        type: 'beneficial', // It's beneficial to the one who cast it, even if harmful to the target of the attack.
+        consumesReaction: false,
+        getScore: (actor, eventOrActionData, context) => {
+            // Case 1: This is a reaction to an event. It should be automatic.
+            if (eventOrActionData.eventName === 'attack_declared') {
+                return 1; // A score > 0 ensures the automatic effect triggers.
+            }
+
+            // Case 2: This is the AI deciding whether to cast the spell.
+            const action = eventOrActionData;
+            const numActionTargets = parseInt(action.targets) || 1;
+            const possibleTargets = getValidTargets(actor, action, context);
+            
+            // Don't apply if the most likely targets already have the condition.
+            const validTargets = possibleTargets.filter(opp => !hasCondition(opp, 'disadvantage_on_attacks_received'));
+
+            if (validTargets.length >= numActionTargets) {
+                // It's a useful debuff. Give it a score comparable to a low-damage cantrip.
+                return 5;
+            }
+
+            return 0;
+        },
+        trigger: {
+            event: 'attack_declared'
+        },
+        conditions: (reactor, eventData) => {
+            // This condition affects attacks against the reactor.
+            return reactor.id === eventData.target.id;
+        },
+        effect: (reactor, eventData, conditionInstance) => {
+            // If the condition is targeted, check if the attack source matches.
+            if (conditionInstance.sourceId && conditionInstance.sourceId !== eventData.attacker.id) {
+                return; // Wrong attacker, do nothing.
+            }
+
+            // Apply disadvantage and log.
+            eventData.disadvantage = true;
+            if (conditionInstance.sourceId) {
+                log(`Attacks against ${reactor.name} have disadvantage from ${eventData.attacker.name}.`, 2);
+            } else {
+                log(`Attacks against ${reactor.name} have disadvantage.`, 2);
+            }
+
+            consumeUse(reactor, conditionInstance, eventData.context);
         }
     },
     saving_throw_modifier: {
@@ -723,24 +816,25 @@ var CONDITIONS_LIBRARY = {
             // Case 1: AI decides whether to USE the modifier during a save.
             if (eventOrActionData.eventName === 'd20_modifying') {
                 const conditionInstance = contextOrConditionInstance;
-                const { finalRoll, dc, saveType, roller } = eventOrActionData;
-                if (!dc || !saveType || !roller || !conditionInstance) return 0; // Not enough info
+                const { finalRoll, dc, roller, saveType } = eventOrActionData;
+                if (!dc || !conditionInstance?.die) return 0; // Not enough info
 
-                // Determine the max possible bonus from the die.
-                const die = conditionInstance.die || '1d4';
+                // Determine if it's a bonus or penalty.
+                const die = conditionInstance.die;
                 const isPenalty = die.startsWith('-');
                 if (isPenalty) return 1; // Always apply penalties.
 
-                const maxBonus = parseInt(die.split('d')[1], 10);
+                const currentTotal = finalRoll + (roller.saves[saveType] || 0);
+                // Calculate the max possible bonus from the die (e.g., '1d4' -> 4).
+                const maxBonus = parseInt(die.split('d')[1], 10) || 0;
 
-                const saveBonus = roller.saves[saveType] || 0;
-                const neededRoll = dc - saveBonus;
+                const neededRoll = dc;
 
                 // If we've already passed, don't use it.
-                if (finalRoll >= neededRoll) return 0;
+                if (currentTotal >= neededRoll) return 0;
 
                 // If the max possible bonus can't make us pass, don't use it.
-                if (finalRoll + maxBonus < neededRoll) return 0;
+                if (currentTotal + maxBonus < neededRoll) return 0;
 
                 // Otherwise, it's a marginal roll where the bonus might help. Use it.
                 return 100;

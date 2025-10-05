@@ -63,14 +63,14 @@ function closeAllTooltips() {
     });
 }
 
-function _updateRelativeToCasterVisibility() {
-    const durationContainer = document.getElementById('duration-components-container');
+function _updateRelativeToCasterVisibility(scope = document) {
+    const durationContainer = scope.querySelector('[id^="duration-components-container"]');
     if (!durationContainer) return;
 
-    const relativeContainer = document.querySelector('[data-cy="relative-to-caster-container"]');
+    const relativeContainer = scope.querySelector('[data-cy="relative-to-caster-container"]');
     if (relativeContainer) {
         const allUnitSelects = durationContainer.querySelectorAll('.duration-unit');
-        const shouldShow = Array.from(allUnitSelects).some(select => select.value === 'turnEnds');
+        const shouldShow = Array.from(allUnitSelects).some(select => select.value === 'turnEnds' || select.value === 'rounds');
         relativeContainer.style.display = shouldShow ? '' : 'none';
     }
 }
@@ -124,6 +124,9 @@ function handleDelegatedClick(event) {
         case 'remove-ability':
             removeAbilityFromEditor(key);
             break;
+        case 'edit-ability':
+            renderAbilityConfigScreen(key);
+            break;
         case 'open-action-editor':
             renderActionEditorInDrawer();
             break;
@@ -143,17 +146,22 @@ function handleDelegatedClick(event) {
             commitAction();
             break;
         case 'back-to-main-editor':
-            renderMainEditorInDrawer();
+            // Determine which tab was active before entering the sub-editor.
+            // The sub-editors are for 'actions' and 'abilities'.
+            const previousTab = document.getElementById('ability-select') ? 'abilities' : 'actions';
+            renderMainEditorInDrawer(previousTab);
             break;
         case 'add-duration-component': {
-            const container = document.getElementById('duration-components-container');
+            // Find the correct container within the current scope (main form or on-hit effect form)
+            const scope = target.closest('.on-hit-effect-form, .accordion-content, .graduated-effect-rule, .targeted-effect-condition-row');
+            const container = scope.querySelector('[id^="duration-components-container"]');
             const newRow = document.createElement('div');
             newRow.className = 'duration-component-row flex items-center gap-2 bg-gray-900 p-2 rounded';
             newRow.innerHTML = `
-                <input type="number" class="duration-value form-input w-20 text-center" value="1">
+                <input type="text" class="duration-value form-input w-20 text-center" value="1">
                 <select class="duration-unit form-select flex-grow">
-                    <option value="rounds">Rounds (at start)</option>
-                    <option value="turnEnds">Turns (at end)</option>
+                    <option value="rounds">Rounds (start of turn)</option>
+                    <option value="turnEnds">Rounds (end of turn)</option>
                     <option value="uses">Uses</option>
                     <option value="minutes">Minutes</option>
                     <option value="hours">Hours</option>
@@ -161,19 +169,86 @@ function handleDelegatedClick(event) {
                 <button data-action="remove-duration-component" class="btn btn-danger p-1 text-xs">&times;</button>
             `;
             container.appendChild(newRow);
+            _updateRelativeToCasterVisibility(scope);
             break;
         }
+        case 'add-on-hit-effect': {
+            const container = document.getElementById('on-hit-effects-container');
+            if (container) {
+                const newIndex = container.children.length;
+                const newItem = document.createElement('div');
+                newItem.className = 'accordion-item on-hit-effect-item';
+                newItem.innerHTML = `
+                    <div class="flex items-center bg-gray-800 rounded-t-md">
+                        <button type="button" class="accordion-header flex-grow" data-action="toggle-accordion">Effect on Hit #${newIndex + 1}</button>
+                        <button data-action="remove-on-hit-effect" class="btn btn-danger p-1 text-xs mr-2">&times;</button>
+                    </div>
+                    <div class="accordion-content">${_getOnHitEffectFormHTML({}, newIndex)}</div>
+                `;
+                container.appendChild(newItem);
+            }
+            break;
+        }
+        case 'add-graduated-effect': { // This now adds a whole rule card
+            // This handler now needs to work for the old forms and the new Targeted Effect form.
+            const parentForm = target.closest('.on-hit-effect-form, .accordion-content, .flex-grow');
+            if (!parentForm) break;
+
+            const container = parentForm.querySelector('[id^="graduated-effects-container-"]');
+            if (!container) break;
+
+            const onHitIndex = container.id.split('-').pop();
+            const newIndex = container.querySelectorAll('.graduated-effect-rule').length;
+            const newRuleHTML = _getGraduatedEffectRuleHTML({}, onHitIndex, newIndex);
+            container.insertAdjacentHTML('beforeend', newRuleHTML);
+            break;
+        }
+        case 'add-targeted-effect-condition': {
+            const container = document.getElementById('targeted-effect-conditions-container');
+            const newIndex = container.querySelectorAll('.targeted-effect-condition-row').length;
+            const newRowHTML = _getTargetedEffectConditionRowHTML({}, newIndex);
+            container.insertAdjacentHTML('beforeend', newRowHTML);
+            break;
+        }
+        case 'remove-graduated-rule':
+            target.closest('.graduated-effect-rule').remove();
+            break;
+        case 'add-nested-effect': {
+            const ruleCard = target.closest('.graduated-effect-rule');
+            const container = ruleCard.querySelector('.nested-effects-container');
+            const newIndex = container.children.length;
+            // We don't need the parent indices for the nested row HTML, but passing for consistency.
+            const newRowHTML = _getNestedEffectRowHTML({}, null, null, newIndex);
+            container.insertAdjacentHTML('beforeend', newRowHTML);
+            break;
+        }
+        case 'remove-nested-effect':
+            target.closest('.nested-effect-row').remove();
+            break;
+        case 'remove-on-hit-effect':
+            target.closest('.on-hit-effect-item').remove(); // Remove the item
+            // Re-number remaining on-hit effect items
+            const remainingEffects = document.querySelectorAll('#on-hit-effects-container .on-hit-effect-item');
+            remainingEffects.forEach((item, idx) => {
+                item.querySelector('button.accordion-header').textContent = `Effect on Hit #${idx + 1}`;
+            });
+            break;
         case 'remove-duration-component':
+            const durationScope = target.closest('.on-hit-effect-form, .accordion-content');
             target.closest('.duration-component-row').remove();
-            _updateRelativeToCasterVisibility();
+            _updateRelativeToCasterVisibility(durationScope);
             break;
         case 'toggle-accordion': {
             const clickedItem = target.closest('.accordion-item');
             const wasActive = clickedItem.classList.contains('active');
 
-            // This logic allows only one accordion to be open at a time within a given modal.
-            // It finds all siblings and closes them.
-            const allItems = clickedItem.parentElement.querySelectorAll('.accordion-item');
+            // Try to find a broad form container first. If not found, fall back to the immediate parent.
+            // This makes the logic robust for both the complex editor UI and simple unit test DOMs.
+            let formContainer = target.closest('.flex-grow.overflow-y-auto');
+            if (!formContainer) {
+                formContainer = clickedItem.parentElement;
+            }
+            const allItems = formContainer.querySelectorAll('.accordion-item');
             allItems.forEach(item => item.classList.remove('active'));
 
             // If the clicked item was not already active, open it.
@@ -230,52 +305,37 @@ function handleDelegatedChange(event) {
 
     // When the user selects a different condition in the effect editor,
     // we need to re-render the form to show/hide the resistance type selector.
-    if (target.id === 'action-editor-effect-name' || target.id === 'action-editor-onhit-effect-name') {
-        const drawerContent = document.getElementById('editor-drawer-content');
-        
-        // --- Preserve State ---
-        // Find which accordion is currently open so we can restore it after re-rendering.
-        const activeAccordionHeader = drawerContent.querySelector('.accordion-item.active .accordion-header');
-        const activeAccordionText = activeAccordionHeader ? activeAccordionHeader.textContent : null;
-        
-        const currentAction = readActionFromForm(); // Read current values to preserve them
-        const { isNew } = appState.getActionEditorState();
-        appState.getActionEditorState().action = currentAction; // Update state with current form data
+    if (target.id === 'action-editor-effect-name' || target.classList.contains('action-editor-onhit-effect-name') || target.classList.contains('targeted-effect-condition-name')) {
+        // Find the parent form of the select element that changed.
+        const parentForm = target.closest('.on-hit-effect-form, .accordion-content, .targeted-effect-condition-row');
+        if (!parentForm) return;
 
-        // --- Re-render the correct form based on its type ---
-        const formType = currentAction.type;
-        let formHTML;
-        switch (formType) {
-            case 'attack':
-                formHTML = getAttackActionFormHTML(currentAction, isNew);
-                break;
-            case 'save':
-                formHTML = getSaveActionFormHTML(currentAction, isNew);
-                break;
-            case 'effect':
-            default:
-                formHTML = getEffectActionFormHTML(currentAction, isNew);
-                break;
+        // Find the container for extra config within that specific form.
+        let extraConfigContainer = parentForm.querySelector('[data-cy="extra-config-container"]');
+        if (!extraConfigContainer) {
+            // If it doesn't exist, create it right after the select element.
+            extraConfigContainer = document.createElement('div');
+            extraConfigContainer.setAttribute('data-cy', 'extra-config-container');
+            target.insertAdjacentElement('afterend', extraConfigContainer);
         }
-        drawerContent.innerHTML = formHTML;
 
-        // --- Restore State ---
-        // Close the default open accordion, which is always the first one.
-        const defaultActiveItem = drawerContent.querySelector('.accordion-item.active');
-        if (defaultActiveItem) {
-            defaultActiveItem.classList.remove('active');
-        }
-        // If there was an active accordion before, find it by its text and re-open it.
-        if (activeAccordionText) {
-            const headers = drawerContent.querySelectorAll('.accordion-header');
-            const newActiveHeader = Array.from(headers).find(h => h.textContent === activeAccordionText);
-            if (newActiveHeader) {
-                newActiveHeader.closest('.accordion-item').classList.add('active');
-            }
-        }
+        // Get the selected condition key.
+        const selectedConditionKey = target.value;
+
+        // Generate only the HTML for the extra configuration based on the selected condition.
+        const extraConfigHTML = _getExtraConfigHTMLForEffect({ name: selectedConditionKey });
+
+        // Surgically replace only the extra config HTML, leaving the rest of the form untouched.
+        extraConfigContainer.innerHTML = extraConfigHTML;
     } else if (target.classList.contains('duration-unit')) {
         // When a duration unit is changed, we need to show/hide the 'relativeTo' checkbox.
-        _updateRelativeToCasterVisibility();
+        const scope = target.closest('.on-hit-effect-form, .accordion-content, .targeted-effect-condition-row');
+        _updateRelativeToCasterVisibility(scope);
+    } else if (target.id === 'action-editor-enable-save') {
+        const saveFieldsContainer = document.getElementById('save-fields-container');
+        if (saveFieldsContainer) {
+            saveFieldsContainer.classList.toggle('hidden', !target.checked);
+        }
     }
 }
 

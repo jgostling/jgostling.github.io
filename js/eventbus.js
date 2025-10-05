@@ -57,6 +57,15 @@ var EventBus = class EventBus {
         if (definition.consumesReaction !== false && reactor.status.usedReaction) {
             return false;
         }
+
+        // Check for conditions that prevent reactions (e.g., Shocking Grasp, Incapacitated).
+        const conditionEffects = getConditionEffects(reactor);
+        // This check should only apply to abilities that actually consume a reaction.
+        // Internal, "free" abilities should still trigger even if the creature is incapacitated.
+        if (definition.consumesReaction !== false && conditionEffects.cannot?.includes('takeReactions')) {
+            return false; 
+        }
+
         // If the reactor is at 0 HP, only allow abilities that can trigger at 0 HP.
         return !(reactor.hp <= 0 && !triggerEvents.includes('reduced_to_0_hp'));
     }
@@ -85,6 +94,23 @@ var EventBus = class EventBus {
 
         // Add the event name to the data payload for subscribers that need it.
         eventData.eventName = eventName;
+
+        // --- Process Action Properties ---
+        // This is a new loop that checks the action itself for properties that modify the event.
+        const action = eventData.action;
+        if (action && action.properties) {
+            for (const propKey of action.properties) {
+                const propDef = ACTION_PROPERTIES_LIBRARY[propKey];
+                // Check if the property listens to the current event
+                if (propDef?.trigger?.event === eventName) {
+                    // Check if the property's conditions are met
+                    if (propDef.conditions(action, eventData)) {
+                        // Apply the effect
+                        propDef.effect(action, eventData);
+                    }
+                }
+            }
+        }
 
         for (const reactor of allReactors) {
             // --- Process abilities from active conditions ---

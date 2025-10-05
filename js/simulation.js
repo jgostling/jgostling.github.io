@@ -198,6 +198,39 @@ function applyDamage(target, damage, type, isMagical = false, context = {}) {
     return finalDamage;
 }
 
+/**
+ * Applies healing to a target, handling max HP caps and dispatching events.
+ * This is the centralized function for all healing sources.
+ * @param {object} target - The combatant receiving the healing.
+ * @param {number} amount - The amount of HP to restore.
+ * @param {string} source - A string describing the source of the heal (e.g., an action name).
+ */
+function applyHeal(target, amount, source) {
+    // Dispatch an event that allows abilities/conditions to modify or prevent healing.
+    const eventData = {
+        target,
+        amount,
+        source
+    };
+    const modifiedEventData = eventBus.dispatch('heal_applying', eventData);
+    const modifiedAmount = modifiedEventData.amount;
+
+    if (modifiedAmount <= 0) return;
+
+    const actualHeal = Math.min(modifiedAmount, target.maxHp - target.hp);
+
+    if (actualHeal <= 0) return;
+
+    const wasDowned = target.hp === 0;
+    target.hp += actualHeal;
+
+    if (wasDowned) {
+        log(`${target.name} is brought back from the brink by ${source}, healing for ${actualHeal} HP!`, 1);
+    } else {
+        log(`${target.name} is healed for ${actualHeal} HP by ${source}.`, 1);
+    }
+}
+
 function makeSavingThrow(target, dc, saveType, sourceAction = {}, context = {}) {
     // Dispatch an event that allows abilities to modify the save before the roll.
     const eventData = {
@@ -354,8 +387,14 @@ function resolveAttackRoll(attacker, target, action, context) {
     const crit = rollResult.rawRoll === 20;
     const hit = crit || (totalToHit >= target.ac && rollResult.rawRoll !== 1);
     
-    log(`${attacker.name} attacks ${target.name} with ${action.name}: rolls ${rollResult.rawRoll} + ${toHitBonus}${logBonusStr} = ${totalToHit} vs AC ${target.ac}.`, 1);
+    const isSpellLike = (typeof action.spellLevel === 'number' && action.spellLevel >= 0);
+    const verb = isSpellLike ? 'casts' : 'attacks';
 
+    if (isSpellLike) {
+        log(`${attacker.name} ${verb} ${action.name}, targeting ${target.name}: rolls ${rollResult.rawRoll} + ${toHitBonus}${logBonusStr} = ${totalToHit} vs AC ${target.ac}.`, 1);
+    } else {
+        log(`${attacker.name} ${verb} ${target.name} with ${action.name}: rolls ${rollResult.rawRoll} + ${toHitBonus}${logBonusStr} = ${totalToHit} vs AC ${target.ac}.`, 1);
+    }
     if (!hit) {
         log(`<span class="text-gray-500">Misses.</span>`, 1);
     }
@@ -416,6 +455,45 @@ function calculateAttackDamage(attacker, target, action, context, crit, damageBo
 }
 
 /**
+ * A private helper to determine the final list of effects to apply after a saving throw,
+ * considering a base effect and any graduated effects from an on_fail_by array.
+ * It handles overriding effects for more severe save failures.
+ * @param {object|null} baseEffect - The standard effect to apply on a failed save.
+ * @param {Array|null} onFailBy - The array of graduated effect rules.
+ * @param {object} saveResult - The result from makeSavingThrow, containing the failure margin.
+ * @returns {Array} An array of the final effect objects to be applied.
+ * @private
+ */
+function _getEffectsToApplyOnSave(baseEffect, onFailBy, saveResult) {
+    const effectsToApply = new Map();
+
+    if (baseEffect?.name) {
+        effectsToApply.set(baseEffect.name, baseEffect);
+    }
+
+    if (onFailBy) {
+        const applicableRules = onFailBy.filter(rule => Math.abs(saveResult.margin) >= rule.margin);
+        for (const rule of applicableRules) {
+            // If the rule has a shared duration, roll it once.
+            const sharedDuration = rule.duration ? deepCopy(rule.duration) : null;
+            if (sharedDuration) {
+                for (const key in sharedDuration) {
+                    const value = sharedDuration[key];
+                    if (typeof value === 'string' && value.includes('d')) {
+                        sharedDuration[key] = rollDice(value);
+                    }
+                }
+            }
+            // Apply the effects from the rule
+            for (const effect of rule.effects) {
+                effectsToApply.set(effect.name, { ...effect, duration: effect.duration || sharedDuration });
+            }
+        }
+    }
+    return Array.from(effectsToApply.values());
+}
+
+/**
  * A private helper to process generic on-hit effects from an action.
  * This handles bonus damage, saving throws, and conditions.
  * @param {object} attacker - The combatant performing the action.
@@ -425,13 +503,23 @@ function calculateAttackDamage(attacker, target, action, context, crit, damageBo
  * @param {boolean} crit - Whether the triggering attack was a critical hit.
  * @private
  */
-function _handleOnHitEffect(attacker, target, onHitEffect, context, crit = false) {    let saveResult = { passed: false, margin: -Infinity }; // Default result for no-save effects
+function _applySingleOnHitEffect(attacker, target, onHitEffect, context, crit = false) {
+    // --- Step 0: Check for conditional application based on target type ---
+    if (onHitEffect.if_target_is) {
+        const requiredTypes = Array.isArray(onHitEffect.if_target_is) ? onHitEffect.if_target_is : [onHitEffect.if_target_is];
+        const targetType = target.type?.toLowerCase() || '';
+        if (!requiredTypes.includes(targetType)) {
+            return; // Target type does not match, so this effect does not apply.
+        }
+    }
+
+    let saveResult = { passed: false, margin: -Infinity }; // Default result for no-save effects
 
     // --- Step 1: Handle Saving Throw ---
     if (onHitEffect.save) {
         saveResult = makeSavingThrow(target, onHitEffect.save.dc, onHitEffect.save.type, onHitEffect, context);
         if (saveResult.passed) {
-            log(`${target.name} succeeds on the saving throw.`, 2);
+            log(`${target.name} succeeds on the saving throw.`, 3);
         } else {
             log(`${target.name} fails the saving throw.`, 2);
         }
@@ -467,29 +555,31 @@ function _handleOnHitEffect(attacker, target, onHitEffect, context, crit = false
     }
 
     // --- Step 3: Handle Conditions/Effects ---
+    // This should happen if the save fails, or if there was no save to begin with.
     if (!saveResult.passed) {
-        const effectsToApply = new Map();
-
-        // Add the base effect if it exists.
-        if (onHitEffect.effect) {
-            effectsToApply.set(onHitEffect.effect.name, onHitEffect.effect);
-        }
-
-        // Check for and apply graduated effects, potentially overriding the base one.
-        if (onHitEffect.on_fail_by) {
-            const applicableGraduatedEffects = onHitEffect.on_fail_by
-                .filter(g => Math.abs(saveResult.margin) >= g.margin)
-                .sort((a, b) => a.margin - b.margin); // Sort ascending to ensure most severe is applied last
-
-            for (const graduated of applicableGraduatedEffects) {
-                effectsToApply.set(graduated.effect.name, graduated.effect);
-            }
-        }
-
+        // Use the new helper to resolve which effects to apply.
+        const effectsToApply = _getEffectsToApplyOnSave(onHitEffect.effect, onHitEffect.on_fail_by, saveResult);
         // Apply all unique, most severe effects.
         for (const effect of effectsToApply.values()) {
             applyCondition(attacker, target, effect, onHitEffect.save?.dc, context);
         }
+    } else if (onHitEffect.on_save === 'half' && onHitEffect.effect) {
+        // This handles the specific case where an effect should still apply even on a successful save,
+        // but only if the action is configured for "half damage on save".
+        applyCondition(attacker, target, onHitEffect.effect, onHitEffect.save?.dc, context);
+    }
+}
+
+function _handleOnHitEffects(attacker, target, action, context, crit) {
+    // Support the new array format
+    if (action.on_hit_effects) {
+        for (const effect of action.on_hit_effects) {
+            _applySingleOnHitEffect(attacker, target, effect, context, crit);
+        }
+    }
+    // Support the old single object format for backward compatibility
+    else if (action.on_hit_effect) {
+        _applySingleOnHitEffect(attacker, target, action.on_hit_effect, context, crit);
     }
 }
 
@@ -499,13 +589,13 @@ function performAttackAction(attacker, target, action, context) {
     if (hit) {
         const { totalDamage, damageBreakdown } = calculateAttackDamage(attacker, target, action, context, crit, damageBonus, advantage, disadvantage, chargeActivated);
         
-        const finalDamage = applyDamage(target, totalDamage, action.damageType, !!action.isMagical, context);
+        // The isMagical property on the action itself should determine if the base damage is magical.
+        const isMagical = !!action.isMagical;
+        const finalDamage = applyDamage(target, totalDamage, action.damageType, isMagical, context);
         log(`<span class="text-green-400">Hits</span> for <span class="font-bold text-yellow-300">${finalDamage}</span> damage (${damageBreakdown.join(' + ')}). ${target.name} HP: ${target.hp}`, 2);
         
         // Handle generic on-hit effects (e.g., poison, bonus fire damage)
-        if (action.on_hit_effect) {
-            _handleOnHitEffect(attacker, target, action.on_hit_effect, context, crit);
-        }
+        _handleOnHitEffects(attacker, target, action, context, crit);
         
         // Check for defeat after all on-hit effects have been applied.
         // We need to get the full list of combatants to correctly update engagement status for everyone.
@@ -567,8 +657,15 @@ function performSaveAction(attacker, action, context, targets) {
     const failedTargets = [];
 
     targets.forEach(target => {
-        // Pass the whole action object to provide full context for the save.
-        const saveResult = makeSavingThrow(target, action.save.dc, action.save.type, action, context);
+        let saveResult;
+        // If the action has a save property, perform the saving throw.
+        // Otherwise, treat it as an automatic failure to apply the effect.
+        if (action.save) {
+            saveResult = makeSavingThrow(target, action.save.dc, action.save.type, action, context);
+        } else {
+            saveResult = { passed: false, margin: -Infinity }; // Auto-fail for effect-only actions
+        }
+
         if (!saveResult.passed) { // Failed save
             failedTargets.push(target);
             log(`Target fails the save.`, 2);
@@ -592,9 +689,11 @@ function performSaveAction(attacker, action, context, targets) {
                 log(`Takes ${finalDamage} damage.`, 3);
             }
             // Handle effect on fail
-            if (action.effect?.name && action.effect?.duration) {
-                const effectToApply = { ...action.effect, isConcentration };
-                applyCondition(attacker, target, effectToApply, action.save.dc, context);
+            const finalEffects = _getEffectsToApplyOnSave(action.effect, action.on_fail_by, saveResult);
+            for (const effect of finalEffects) {
+                // Add the isConcentration flag before applying.
+                if (isConcentration) effect.isConcentration = true;
+                applyCondition(attacker, target, effect, action.save?.dc, context);
             }
         } else { // Successful save
             if (action.half && action.damage) {
@@ -646,25 +745,18 @@ function performHealAction(attacker, action, context) {
 
     const target = injuredTargets[0];
     const wasDowned = target.hp === 0;
-    const healAmount = rollDice(action.heal);
-    target.hp = Math.min(target.maxHp, target.hp + healAmount);
-    if (wasDowned) {
-        log(`${attacker.name} brings ${target.name} back from the brink with ${action.name}, healing for ${healAmount} HP!`, 1);
-    } else {
-        log(`${attacker.name} heals ${target.name} for ${healAmount} HP with ${action.name}.`, 1);
-    }
+    const healAmount = rollDice(action.heal) || 0;
+
+    // Delegate the actual healing to the centralized applyHeal function.
+    // It will handle logging, max HP caps, and "heal_applying" events.
+    applyHeal(target, healAmount, action.name);
 }
 
 function _findPoolAbility(attacker, poolName) {
-    // Find the stateful ability in the attacker's status object by its name.
-    // This relies on setupCombatant having already populated the name.
-    for (const key in attacker.status.abilities) {
-        const abilityState = attacker.status.abilities[key];
-        if (abilityState.pool !== undefined && abilityState.name === poolName) {
-            return abilityState;
-        }
-    }
-    return null;
+    // Find the stateful ability in the attacker's status object by its key.
+    // The poolName on the action should match the ability key (e.g., 'lay_on_hands').
+    const poolAbility = attacker.status.abilities[poolName];
+    return (poolAbility && poolAbility.pool !== undefined) ? poolAbility : null;
 }
 
 function performPoolHealAction(attacker, action, context) {
@@ -701,89 +793,15 @@ function performPoolHealAction(attacker, action, context) {
     const amountToHeal = Math.min(action.amount, poolAbility.pool, missingHp);
 
     if (amountToHeal <= 0) {
-        log(`${attacker.name} tries to use ${action.name}, but ${target.name} is already at full health.`, 1);
+        // This case is now implicitly handled by applyHeal, which does nothing if actualHeal is <= 0.
         return;
     }
 
-    // 4. Apply healing, deplete the pool, and log the action.
-    target.hp += amountToHeal;
+    // 4. Deplete the pool and delegate the healing to the centralized function.
     poolAbility.pool -= amountToHeal;
+    log(`${attacker.name} uses ${action.name}, spending ${amountToHeal} points from the pool. (${poolAbility.pool} points remaining)`, 1);
 
-    log(`${attacker.name} uses ${action.name} to heal ${target.name} for ${amountToHeal} HP. (${poolAbility.pool} points remaining)`, 1);
-}
-
-function performEffectAction(attacker, action, context) {
-    const targeting = action.targeting || 'any';
-    const numTargets = parseInt(action.targets) || 1;
-    let potentialTargets = [];
-
-    // Determine if the effect is beneficial (targets allies) or harmful (targets opponents)
-    const effectDef = CONDITIONS_LIBRARY[action.effect.name];
-    const isBeneficial = effectDef?.type === 'beneficial';
-
-    // Beneficial effects target allies, and harmful effects target opponents.
-    const targetsOpponents = !isBeneficial;
-    if (targeting === 'self') {
-        potentialTargets = [attacker];
-    } else if (targeting === 'other') {
-        // 'other' always means allies other than self for beneficial effects.
-        potentialTargets = context.allies.filter(a => a.id !== attacker.id);
-    } else { // 'any'
-        potentialTargets = targetsOpponents ? getValidTargets(attacker, action, context) : context.allies;
-    }
-
-    let targets = [];
-    if (potentialTargets.length > 0) {
-        if (numTargets === 1) {
-            // For single-target, use AI to choose the best one.
-            const chosenTarget = chooseTarget(attacker, potentialTargets);
-            if (chosenTarget) targets.push(chosenTarget);
-        } else {
-            // For multi-target, we take a slice from the start for deterministic testing.
-            targets = potentialTargets.slice(0, numTargets);
-        }
-    }
-
-    const isConcentration = action.effect?.duration?.concentration;
-
-    const isSpellLike = (typeof action.spellLevel === 'number' && action.spellLevel >= 0) || !!action.isMagical;
-    if (targets.length === 0) {
-        const baseVerb = isSpellLike ? 'cast' : 'use';
-        log(`${attacker.name} tries to ${baseVerb} ${action.name}, but there are no valid targets.`, 1);
-        return;
-    }
-
-    const targetNames = targets.map(t => t.name).join(', ');
-    const verb = isSpellLike ? 'casts' : 'uses';
-    let logMessage;
-    if (targets.length === 1 && targets[0].id === attacker.id) {
-        logMessage = `${attacker.name} ${verb} ${action.name}.`;
-    } else {
-        logMessage = `${attacker.name} ${verb} ${action.name}, affecting ${targetNames}.`;
-    }
-    log(logMessage, 1);
-
-    // For effect actions, concentration applies to all targets immediately.
-    if (isConcentration) {
-        if (attacker.status.concentratingOn) {
-            breakConcentration(attacker, context);
-        }
-        attacker.status.concentratingOn = {
-            spellName: action.name,
-            targetIds: targets.map(t => t.id)
-        };
-        log(`${attacker.name} is now concentrating on ${action.name}.`, 1);
-    }
-
-    targets.forEach(t => {
-        // Create a temporary effect object to pass to applyCondition.
-        // This allows us to add the isConcentration flag without modifying the base action.
-        const effectToApply = { ...action.effect };
-        if (isConcentration) {
-            effectToApply.isConcentration = true;
-        }
-        applyCondition(attacker, t, effectToApply, null, context);
-    });
+    applyHeal(target, amountToHeal, action.name);
 }
 
 function performAction(attacker, action, context, isSubAction = false) {
@@ -851,13 +869,34 @@ function performAction(attacker, action, context, isSubAction = false) {
             }
             break;
         }
+        case 'effect': // Fall-through
         case 'save': {
             let targets = [];
-            const possibleTargets = getValidTargets(attacker, action, freshContext);
+            let possibleTargets = [];
+
+            // This logic is merged from performEffectAction to handle both save and effect actions.
+            const isEffectOnly = actionType === 'effect';
+            const effectDef = isEffectOnly ? CONDITIONS_LIBRARY[action.effect.name] : null;
+            const isBeneficial = effectDef?.type === 'beneficial';
+            const targeting = action.targeting || 'any';
+
+            if (targeting === 'self') {
+                possibleTargets = [attacker];
+            } else if (isBeneficial) {
+                possibleTargets = (targeting === 'other') ? freshContext.allies.filter(a => a.id !== attacker.id) : freshContext.allies;
+            } else {
+                // Default to targeting opponents for save-based actions or harmful effects.
+                possibleTargets = getValidTargets(attacker, action, freshContext);
+            }
+
             if (possibleTargets.length > 0) {
                 const numTargets = parseInt(action.targets) || 1;
                 if (numTargets === 1) {
-                    targets.push(chooseTarget(attacker, possibleTargets));
+                    if (isBeneficial && possibleTargets.length === 1 && possibleTargets[0].id === attacker.id) {
+                        targets.push(attacker);
+                    } else {
+                        targets.push(chooseTarget(attacker, possibleTargets));
+                    }
                 } else {
                     const shuffledTargets = [...possibleTargets].sort(() => 0.5 - Math.random());
                     targets = shuffledTargets.slice(0, numTargets);
@@ -872,12 +911,10 @@ function performAction(attacker, action, context, isSubAction = false) {
         case 'heal':
             performHealAction(attacker, action, freshContext);
             break;
-        case 'effect':
-            performEffectAction(attacker, action, freshContext);
-            break;
         default:
             if (action.name === 'Dodge') {
-                performEffectAction(attacker, action, freshContext);
+                // Dodge is a self-targeted effect action.
+                performSaveAction(attacker, action, freshContext, [attacker]);
             }
             break;
     }
@@ -1012,41 +1049,53 @@ function chooseAction(attacker, actionType, context) {
     return bestAction;
 }
 
-function handleTurnStart(attacker) {
-    log(`<div class="mt-2"><span class="font-bold text-${attacker.team === 'A' ? 'blue' : 'red'}-400">${attacker.name}'s</span> turn (HP: ${attacker.hp}).</div>`);
-    
-    attacker.status.usedAction = false;
-    attacker.status.usedBonusAction = false;
-    attacker.status.usedReaction = false;
-    attacker.status.usedSneakAttack = false;
-    attacker.status.usedSavageAttacker = false;
-    attacker.status.canMakeGWMAttack = false;
-    attacker.status.canMakeRampageAttack = false;
-    attacker.status.loggedCharmMessageThisTurn = false;
-    attacker.status.conditions = attacker.status.conditions.filter(c => {
-        // If the condition has a round-based duration, decrement it and check if it has expired.
-        if (c.duration?.rounds) {
-            c.duration.rounds--;
-            if (c.duration.rounds <= 0) {
-                const conditionDef = CONDITIONS_LIBRARY[c.name];
-                const displayName = conditionDef ? conditionDef.name : c.name;
-                log(`The ${displayName} effect on ${attacker.name} has expired.`, 1);
-                return false;
+/**
+ * Handles all start-of-turn effects for a combatant and across the battlefield.
+ * This includes resetting per-turn flags and decrementing condition durations.
+ * @param {object} activeCombatant - The combatant whose turn is starting.
+ * @param {object[]} allCombatants - An array of all combatants in the simulation.
+ */
+function handleTurnStart(activeCombatant, allCombatants) {
+    log(`<div class="mt-2"><span class="font-bold text-${activeCombatant.team === 'A' ? 'blue' : 'red'}-400">${activeCombatant.name}'s</span> turn (HP: ${activeCombatant.hp}).</div>`);
+
+    // Reset per-turn flags for the active combatant
+    activeCombatant.status.usedAction = false;
+    activeCombatant.status.usedBonusAction = false;
+    activeCombatant.status.usedReaction = false;
+    activeCombatant.status.usedSneakAttack = false;
+    activeCombatant.status.usedSavageAttacker = false;
+    activeCombatant.status.canMakeGWMAttack = false;
+    activeCombatant.status.canMakeRampageAttack = false;
+    activeCombatant.status.loggedCharmMessageThisTurn = false;
+
+    // Process round-based durations for ALL combatants
+    for (const combatant of allCombatants) {
+        if (!combatant.status.conditions || combatant.status.conditions.length === 0) continue;
+
+        combatant.status.conditions = combatant.status.conditions.filter(cond => {
+            if (cond.duration?.rounds) {
+                let shouldDecrement = (cond.duration.relativeTo === 'source' && cond.sourceId === activeCombatant.id) ||
+                                      (!cond.duration.relativeTo && combatant.id === activeCombatant.id);
+                if (shouldDecrement) cond.duration.rounds--;
+
+                if (cond.duration.rounds <= 0) {
+                    log(`The ${CONDITIONS_LIBRARY[cond.name]?.name || cond.name} effect on ${combatant.name} has expired.`, 1);
+                    return false;
+                }
             }
-        }
-        // If the condition has no duration (e.g., prone), it persists until removed by another effect.
-        return true;
-    });
-    
-    attacker.attacks.forEach(action => {
+            return true;
+        });
+    }
+
+    // Reset per-turn action uses for the active combatant
+    activeCombatant.attacks.forEach(action => {
         if (action.uses?.per === 'turn') {
-            attacker.status.actionUses[action.name.replace(/\s+/g, '_')] = 0;
+            activeCombatant.status.actionUses[action.name.replace(/\s+/g, '_')] = 0;
         }
     });
 
     // Dispatch an event that start-of-turn abilities like Regeneration can react to.
-    eventBus.dispatch('turn_started', { combatant: attacker });
-
+    eventBus.dispatch('turn_started', { combatant: activeCombatant });
 }
 
 function handlePreActionBonusActions(attacker, context) {
@@ -1106,7 +1155,7 @@ function handleRoundStart(allCombatants) {
 function executeTurn(attacker, allCombatants) {
     if (attacker.hp <= 0) return;
 
-    handleTurnStart(attacker);
+    handleTurnStart(attacker, allCombatants);
     const context = getContext(attacker, allCombatants);
 
     // Dispatch an event to check for turn-skipping conditions like incapacitated.
@@ -1267,13 +1316,26 @@ function applyCondition(attacker, target, effect, saveDC = null, context = {}) {
     }
 
     const newCondition = deepCopy(effect);
-    newCondition.sourceId = attacker.id;
+    // Only add a sourceId if the effect doesn't explicitly opt out.
+    if (!effect.noSource) {
+        newCondition.sourceId = attacker.id;
+    }
 
     // If a turn-based duration is relative to the caster (or self-applied), we need to add 1 to account for the current turn.
     // A user-inputted duration of "1 turn" should last until the end of the *next* turn.
     // This makes the UI more intuitive.
     if (newCondition.duration?.turnEnds && (newCondition.duration.relativeTo === 'source' || attacker.id === target.id)) {
         newCondition.duration.turnEnds++;
+    }
+
+    // Handle dice notation in duration values (e.g., { minutes: '1d10' })
+    if (newCondition.duration) {
+        for (const key in newCondition.duration) {
+            const value = newCondition.duration[key];
+            if (typeof value === 'string' && value.includes('d')) {
+                newCondition.duration[key] = rollDice(value);
+            }
+        }
     }
 
     // If the effect allows for repeating saves, store the original DC on the condition instance.

@@ -169,17 +169,14 @@ p {
 }
 
 .accordion-content {
-    max-height: 0;
-    overflow: hidden;
-    transition: max-height 0.3s ease-out;
+    display: none; /* Hide by default */
+    padding: 0.75rem; /* Add padding directly to the content area */
     border-bottom-left-radius: calc(0.375rem - 1px);
     border-bottom-right-radius: calc(0.375rem - 1px);
 }
 
 .accordion-item.active .accordion-content {
-    max-height: 500px; /* A large enough value to show content */
-    /* Allow tooltips inside the content to be visible when open */
-    overflow: visible;
+    display: block; /* Show when active */
 }
 
 /* === Wizard Styles === */

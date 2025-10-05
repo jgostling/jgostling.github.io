@@ -1,3 +1,19 @@
+/**
+ * A private helper to normalize an ability's value into an array of strings.
+ * It handles both the new array format and the old comma-separated string format for backward compatibility.
+ * @param {string|string[]} abilityValue - The value of the ability from the combatant's state.
+ * @returns {string[]} An array of the types.
+ * @private
+ */
+function _getAbilityTypes(abilityValue) {
+    if (Array.isArray(abilityValue)) {
+        return abilityValue;
+    } else if (typeof abilityValue === 'string' && abilityValue.length > 0) {
+        return abilityValue.split(',').map(t => t.trim());
+    }
+    return [];
+}
+
 const poisonResilienceBase = {
     valueType: 'boolean',
     consumesReaction: false,
@@ -592,11 +608,8 @@ var ABILITIES_LIBRARY = {
         },
         effect: (reactor, eventData) => {
             const healAmount = parseInt(reactor.abilities.regeneration, 10) || 0;
-            const heal = Math.min(healAmount, reactor.maxHp - reactor.hp);
-            if (heal > 0) {
-                reactor.hp += heal;
-                log(`${reactor.name} regenerates ${heal} HP.`, 1);
-            }
+            // Delegate the actual healing to the centralized applyHeal function.
+            applyHeal(reactor, healAmount, 'Regeneration');
         }
     },
     // Utility
@@ -1196,7 +1209,7 @@ var ABILITIES_LIBRARY = {
     resistance: {
         name: "Damage Resistance",
         description: "Take half damage from the specified types.",
-        valueType: 'string',
+        valueType: 'damage_types',
         placeholder: 'e.g., fire,cold',
         consumesReaction: false,
         trigger: {
@@ -1204,7 +1217,7 @@ var ABILITIES_LIBRARY = {
         },
         conditions: (reactor, eventData) => {
             if (reactor.id !== eventData.target.id) return false;
-            const resistances = (reactor.abilities.resistance || '').split(',').map(r => r.trim());
+            const resistances = _getAbilityTypes(reactor.abilities.resistance);
             return resistances.includes(eventData.type) || resistances.includes('all');
         },
         effect: (reactor, eventData) => {
@@ -1214,7 +1227,7 @@ var ABILITIES_LIBRARY = {
     vulnerability: {
         name: "Damage Vulnerability",
         description: "Take double damage from the specified types.",
-        valueType: 'string',
+        valueType: 'damage_types',
         placeholder: 'e.g., fire,cold',
         consumesReaction: false,
         trigger: {
@@ -1222,33 +1235,44 @@ var ABILITIES_LIBRARY = {
         },
         conditions: (reactor, eventData) => {
             if (reactor.id !== eventData.target.id) return false;
-            const vulnerabilities = (reactor.abilities.vulnerability || '').split(',').map(v => v.trim());
+            const vulnerabilities = _getAbilityTypes(reactor.abilities.vulnerability);
             return vulnerabilities.includes(eventData.type);
         },
         effect: (reactor, eventData) => {
             eventData.grantVulnerability = true;
         }
     },
-    immunity: {
-        name: "Damage & Condition Immunity",
-        description: "Take no damage from specified types and ignore specified conditions.",
-        valueType: 'string',
-        placeholder: 'e.g., poison,fire,charmed',
+    damage_immunity: {
+        name: "Damage Immunity",
+        description: "Take no damage from specified types.",
+        valueType: 'damage_types',
+        placeholder: 'e.g., poison,fire',
         consumesReaction: false,
         trigger: {
-            events: ['damage_applying', 'condition_applying']
+            event: 'damage_applying'
         },
         conditions: (reactor, eventData) => {
             if (reactor.id !== eventData.target.id) return false;
-            const immunities = (reactor.abilities.immunity || '').split(',').map(i => i.trim());
-
-            if (eventData.eventName === 'damage_applying') {
-                return immunities.includes(eventData.type) || immunities.includes('all');
-            }
-            if (eventData.eventName === 'condition_applying') {
-                return immunities.includes(eventData.condition.name);
-            }
-            return false;
+            const immunities = _getAbilityTypes(reactor.abilities.damage_immunity);
+            return immunities.includes(eventData.type) || immunities.includes('all');
+        },
+        effect: (reactor, eventData) => {
+            eventData.isImmune = true;
+        }
+    },
+    condition_immunity: {
+        name: "Condition Immunity",
+        description: "Cannot be affected by the specified conditions.",
+        valueType: 'condition_names',
+        placeholder: 'e.g., charmed,frightened',
+        consumesReaction: false,
+        trigger: {
+            event: 'condition_applying'
+        },
+        conditions: (reactor, eventData) => {
+            if (reactor.id !== eventData.target.id) return false;
+            const immunities = _getAbilityTypes(reactor.abilities.condition_immunity);
+            return immunities.includes(eventData.condition.name);
         },
         effect: (reactor, eventData) => {
             eventData.isImmune = true;

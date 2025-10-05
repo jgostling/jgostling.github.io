@@ -136,6 +136,10 @@ function getEditorDrawerHTML() {
                         ${_getTooltipHTML('Determines targeting priority. Melee attackers must target available "Frontline" combatants before "Backline" ones.')}
                     </div>
                     <input type="number" id="${prefix}-init_mod" placeholder="Init Mod" class="form-input" value="${init_mod}">
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="${prefix}-wears-metal-armor" class="form-checkbox" ${data.armor?.material === 'metal' ? 'checked' : ''}>
+                        <label for="${prefix}-wears-metal-armor">Wears Metal Armor</label>
+                    </div>
                     <input type="number" id="${prefix}-count" placeholder="Count" value="1" class="form-input" ${isEditing ? 'disabled' : ''}>
                 </div>
                 <h4 class="font-semibold pt-2 border-t border-gray-600">Saving Throws</h4>
@@ -273,6 +277,27 @@ function renderActionListHTML(actions) {
     }).join('');
 }
 
+function _getAbilityValueDisplay(value) {
+    if (value === true) {
+        return 'Enabled';
+    }
+    if (typeof value === 'object' && value.pool !== undefined && value.die !== undefined) {
+        return `Pool: <span class="font-mono text-yellow-300">${value.pool}</span>, Die: <span class="font-mono text-yellow-300">${value.die}</span>`;
+    }
+    if (typeof value === 'object' && value.pool !== undefined) {
+        return `Pool: <span class="font-mono text-yellow-300">${value.pool}</span>`;
+    }
+    if (typeof value === 'object' && value.damage) { // charge_config
+        const attackPart = value.attackName ? ` (on ${value.attackName})` : '';
+        const savePart = (typeof value.dc === 'number' && value.type && value.effect) ? `, Save: DC ${value.dc} ${value.type.toUpperCase()}, Effect: ${value.effect}` : '';
+        return `Damage: ${value.damage}${attackPart}${savePart}`;
+    }
+    if (Array.isArray(value)) {
+        return `Value: <span class="font-mono text-yellow-300">${[...value].sort().join(', ')}</span>`;
+    }
+    return `Value: <span class="font-mono text-yellow-300">${value}</span>`;
+}
+
 function renderAbilityListHTML(abilities) {
     if (!abilities || Object.keys(abilities).length === 0) {
         return '<p class="text-gray-400 text-center py-4">No abilities defined.</p>';
@@ -281,28 +306,15 @@ function renderAbilityListHTML(abilities) {
         const abilityInfo = ABILITIES_LIBRARY[key];
         if (!abilityInfo) return ''; // Skip unknown abilities
 
-        let valueDisplay = '';
-        if (value === true) {
-            valueDisplay = 'Enabled';
-        } else if (typeof value === 'object' && value.pool !== undefined && value.die !== undefined) {
-            valueDisplay = `Pool: <span class="font-mono text-yellow-300">${value.pool}</span>, Die: <span class="font-mono text-yellow-300">${value.die}</span>`;
-        } else if (typeof value === 'object' && value.pool !== undefined) {
-            valueDisplay = `Pool: <span class="font-mono text-yellow-300">${value.pool}</span>`;
-        } else if (typeof value === 'object' && value.damage) { // charge_config
-            const attackPart = value.attackName ? ` (on ${value.attackName})` : '';
-            let savePart = '';
-            if (typeof value.dc === 'number' && value.type && value.effect) {
-                savePart = `, Save: DC ${value.dc} ${value.type.toUpperCase()}, Effect: ${value.effect}`;
-            }
-            valueDisplay = `Damage: ${value.damage}${attackPart}${savePart}`;
-        } else if (typeof value === 'string' || typeof value === 'number') {
-            valueDisplay = `Value: <span class="font-mono text-yellow-300">${value}</span>`;
-        }
+        const valueDisplay = _getAbilityValueDisplay(value);
 
         return `
             <div class="bg-gray-800 p-2 rounded-md flex justify-between items-center">
-                <div><p class="font-semibold text-white">${abilityInfo.name}</p><p class="text-xs text-gray-400">${valueDisplay}</p></div>
-                <div class="flex gap-2"><button data-action="remove-ability" data-key="${key}" class="btn btn-danger p-1 text-xs">Remove</button></div>
+                <div>
+                    <p class="font-semibold text-white">${abilityInfo.name}</p>
+                    <p class="text-xs text-gray-400">${valueDisplay}</p>
+                </div>
+                <div class="flex gap-2"><button data-action="edit-ability" data-key="${key}" class="btn btn-secondary p-1 text-xs">Edit</button><button data-action="remove-ability" data-key="${key}" class="btn btn-danger p-1 text-xs">Remove</button></div>
             </div>`;
     }).join('');
 }
@@ -422,6 +434,17 @@ function configureSelectedAbility() {
     }
 }
 
+function _getAbilityMultiSelectHTML(ability, options, selectedValues = []) {
+    const optionHTML = options.map(([value, text]) => 
+        `<option value="${value}" ${selectedValues.includes(value) ? 'selected' : ''}>${text}</option>`
+    ).join('');
+
+    return `
+        <label for="ability-config-types" class="block font-semibold mb-1">${ability.name} Types</label>
+        <select id="ability-config-types" class="form-select w-full h-48" multiple>${optionHTML}</select>
+    `;
+}
+
 function renderAbilityConfigScreen(abilityKey) {
     const drawerContent = document.getElementById('editor-drawer-content');
     const ability = ABILITIES_LIBRARY[abilityKey];
@@ -430,53 +453,76 @@ function renderAbilityConfigScreen(abilityKey) {
         return;
     }
 
+    const { combatant } = appState.getEditorState();
+    const existingValue = combatant?.abilities?.[abilityKey];
+
     let inputHTML = '';
     const inputId = 'ability-config-value';
 
     switch (ability.valueType) {
-        case 'pool':
+        case 'pool': {
+            const poolValue = existingValue?.pool ?? '';
             inputHTML = `<label for="ability-config-pool" class="block font-semibold mb-1">${ability.name} Pool Size</label>
-                         <input type="number" id="ability-config-pool" placeholder="${ability.placeholder || ''}" class="form-input w-full">`;
+                         <input type="number" id="ability-config-pool" placeholder="${ability.placeholder || ''}" class="form-input w-full" value="${poolValue}">`;
             break;
-        case 'pool_and_dice':
+        }
+        case 'pool_and_dice': {
+            const poolValue = existingValue?.pool ?? '';
+            const dieValue = existingValue?.die ?? '';
             inputHTML = `<label for="ability-config-pool" class="block font-semibold mb-1">${ability.name} Pool Size</label>
-                         <input type="number" id="ability-config-pool" placeholder="e.g., 5" class="form-input w-full mb-4">
+                         <input type="number" id="ability-config-pool" placeholder="e.g., 5" class="form-input w-full mb-4" value="${poolValue}">
                          <label for="ability-config-die" class="block font-semibold mb-1">Inspiration Die</label>
-                         <input type="text" id="ability-config-die" placeholder="${ability.placeholder || 'e.g., 1d6'}" class="form-input w-full">`;
+                         <input type="text" id="ability-config-die" placeholder="${ability.placeholder || 'e.g., 1d6'}" class="form-input w-full" value="${dieValue}">`;
             break;
+        }
         case 'charge_config': {
-            const { combatant } = appState.getEditorState();
+            const val = existingValue || {};
             const attackOptions = (combatant.attacks || [])
                 .filter(a => a.toHit)
-                .map(a => `<option value="${a.name}">${a.name}</option>`)
+                .map(a => `<option value="${a.name}" ${val.attackName === a.name ? 'selected' : ''}>${a.name}</option>`)
                 .join('');
             const saveTypes = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
             const conditionOptions = Object.entries(CONDITIONS_LIBRARY)
                 .filter(([, def]) => def.category !== 'internal')
                 .sort(([, a], [, b]) => a.name.localeCompare(b.name))
-                .map(([key, def]) => `<option value="${key}">${def.name}</option>`)
+                .map(([key, def]) => `<option value="${key}" ${val.effect === key ? 'selected' : ''}>${def.name}</option>`)
                 .join('');
             inputHTML = `
                 <label for="ability-config-charge-damage" class="block font-semibold mb-1">Bonus Damage</label>
-                <input type="text" id="ability-config-charge-damage" placeholder="e.g., 2d6" class="form-input w-full mb-4">
+                <input type="text" id="ability-config-charge-damage" placeholder="e.g., 2d6" class="form-input w-full mb-4" value="${val.damage || ''}">
                 <label for="ability-config-charge-dc" class="block font-semibold mb-1">Save DC</label>
-                <input type="number" id="ability-config-charge-dc" placeholder="e.g., 14" class="form-input w-full mb-4">
+                <input type="number" id="ability-config-charge-dc" placeholder="e.g., 14" class="form-input w-full mb-4" value="${val.dc || ''}">
                 <label for="ability-config-charge-type" class="block font-semibold mb-1">Save Type</label>
-                <select id="ability-config-charge-type" class="form-select w-full mb-4">${saveTypes.map(t => `<option value="${t}">${t.toUpperCase()}</option>`).join('')}</select>
+                <select id="ability-config-charge-type" class="form-select w-full mb-4">${saveTypes.map(t => `<option value="${t}" ${val.type === t ? 'selected' : ''}>${t.toUpperCase()}</option>`).join('')}</select>
                 <label for="ability-config-charge-effect" class="block font-semibold mb-1">Effect on Fail</label>
                 <select id="ability-config-charge-effect" class="form-select w-full mb-4">${conditionOptions}</select>
                 <label for="ability-config-charge-attack" class="block font-semibold mb-1">Specific Attack</label>
-                <select id="ability-config-charge-attack" class="form-select w-full"><option value="">Any Melee Attack</option>${attackOptions}</select>
+                <select id="ability-config-charge-attack" class="form-select w-full"><option value="" ${!val.attackName ? 'selected' : ''}>Any Melee Attack</option>${attackOptions}</select>
             `;
             break;
         }
-        case 'number':
-            inputHTML = `<label for="${inputId}" class="block font-semibold mb-1">${ability.name} Value</label><input type="number" id="${inputId}" placeholder="${ability.placeholder || ''}" class="form-input w-full">`;
+        case 'damage_types': {
+            const options = DAMAGE_TYPES.map(type => [type, type.charAt(0).toUpperCase() + type.slice(1)]);
+            inputHTML = _getAbilityMultiSelectHTML(ability, options, existingValue);
             break;
-        case 'dice':
-        case 'string':
-            inputHTML = `<label for="${inputId}" class="block font-semibold mb-1">${ability.name} Value</label><input type="text" id="${inputId}" placeholder="${ability.placeholder || ''}" class="form-input w-full">`;
+        }
+        case 'condition_names': {
+            const options = Object.entries(CONDITIONS_LIBRARY)
+                // Only include the core, named conditions that a creature can be immune to.
+                .filter(([key]) => CORE_IMMUNITY_CONDITIONS.includes(key))
+                .sort(([, a], [, b]) => a.name.localeCompare(b.name))
+                .map(([key, def]) => [key, def.name]);
+            inputHTML = _getAbilityMultiSelectHTML(ability, options, existingValue);
             break;
+        }
+        case 'number': // Fall-through
+        case 'dice':   // Fall-through
+        case 'string': {
+            const inputType = ability.valueType === 'number' ? 'number' : 'text';
+            const value = existingValue ?? '';
+            inputHTML = `<label for="${inputId}" class="block font-semibold mb-1">${ability.name} Value</label><input type="${inputType}" id="${inputId}" placeholder="${ability.placeholder || ''}" class="form-input w-full" value="${value}">`;
+            break;
+        }
         case 'boolean':
             inputHTML = `<p class="text-gray-400 italic">This ability doesn't require a specific value.</p>`;
             break;
@@ -501,57 +547,52 @@ function commitAbility(key) {
     if (!combatant || !ability) return;
 
     let value = true;
-    if (ability.valueType === 'pool') {
-        const input = document.getElementById('ability-config-pool');
-        const poolValue = parseInt(input.value, 10);
-        if (isNaN(poolValue) || poolValue < 0) {
-            console.error(`Invalid pool value: ${input.value}`);
-            return;
+    switch (ability.valueType) {
+        case 'boolean':
+            value = true;
+            break;
+        case 'pool': {
+            const input = document.getElementById('ability-config-pool');
+            const poolValue = parseInt(input.value, 10);
+            if (isNaN(poolValue) || poolValue < 0) { console.error(`Invalid pool value: ${input.value}`); return; }
+            value = { pool: poolValue };
+            break;
         }
-        value = { pool: poolValue };
-    }
-    else if (ability.valueType === 'pool_and_dice') {
-        const poolInput = document.getElementById('ability-config-pool');
-        const dieInput = document.getElementById('ability-config-die');
-        const poolValue = parseInt(poolInput.value, 10);
-        const dieValue = dieInput.value.trim();
-        if (isNaN(poolValue) || poolValue < 0) {
-            console.error(`Invalid pool value: ${poolInput.value}`);
-            return;
+        case 'pool_and_dice': {
+            const poolInput = document.getElementById('ability-config-pool');
+            const dieInput = document.getElementById('ability-config-die');
+            const poolValue = parseInt(poolInput.value, 10);
+            const dieValue = dieInput.value.trim();
+            if (isNaN(poolValue) || poolValue < 0) { console.error(`Invalid pool value: ${poolInput.value}`); return; }
+            if (!dieValue || !/^\d*d\d+$/.test(dieValue)) { console.error(`Invalid die value: ${dieValue}`); return; }
+            value = { pool: poolValue, die: dieValue };
+            break;
         }
-        if (!dieValue || !/^\d*d\d+$/.test(dieValue)) {
-            console.error(`Invalid die value: ${dieValue}`);
-            return;
+        case 'charge_config': {
+            const damage = document.getElementById('ability-config-charge-damage').value.trim();
+            const dc = parseInt(document.getElementById('ability-config-charge-dc').value, 10);
+            const type = document.getElementById('ability-config-charge-type').value;
+            const effect = document.getElementById('ability-config-charge-effect').value;
+            const attackName = document.getElementById('ability-config-charge-attack').value;
+            if (calculateAverageDamage(damage) === null) { console.error(`Invalid damage format: ${damage}`); return; }
+            if (document.getElementById('ability-config-charge-dc').value.trim() !== '' && (isNaN(dc) || dc < 0)) { console.error(`Invalid DC: ${dc}`); return; }
+            value = (dc > 0) ? { damage, dc, type, effect } : { damage };
+            if (attackName) value.attackName = attackName;
+            break;
         }
-        value = { pool: poolValue, die: dieValue };
-    } else if (ability.valueType === 'charge_config') {
-        const damage = document.getElementById('ability-config-charge-damage').value.trim();
-        const dc = parseInt(document.getElementById('ability-config-charge-dc').value, 10);
-        const type = document.getElementById('ability-config-charge-type').value;
-        const effect = document.getElementById('ability-config-charge-effect').value;
-        const attackName = document.getElementById('ability-config-charge-attack').value;
-
-        if (calculateAverageDamage(damage) === null) {
-            console.error(`Invalid damage format: ${damage}`);
-            return;
+        case 'damage_types':
+        case 'condition_names': {
+            const multiSelect = document.getElementById('ability-config-types');
+            if (multiSelect) {
+                value = Array.from(multiSelect.selectedOptions).map(opt => opt.value).sort();
+            }
+            break;
         }
-        if (document.getElementById('ability-config-charge-dc').value.trim() !== '' && (isNaN(dc) || dc < 0)) {
-            console.error(`Invalid DC: ${dc}`);
-            return;
+        default: { // Handles 'number', 'dice', 'string'
+            const input = document.getElementById('ability-config-value');
+            value = ability.valueType === 'number' ? parseInt(input.value, 10) : (input.value || '');
+            break;
         }
-
-        if (dc > 0) {
-            value = { damage, dc, type, effect };
-        } else {
-            value = { damage };
-        }
-        if (attackName) {
-            value.attackName = attackName;
-        }
-    }
-    else if (ability.valueType !== 'boolean') {
-        const input = document.getElementById('ability-config-value');
-        value = ability.valueType === 'number' ? parseInt(input.value, 10) : (input.value || '');
     }
 
     combatant.abilities[key] = value;
@@ -575,7 +616,8 @@ function renderActionEditorInDrawer(index = null) {
         appState.openActionEditorForUpdate(index);
         const { action } = appState.getActionEditorState();
         const getTypeOfAction = (act) => {
-            if (act.type) return act.type;
+            if (act.formType) return act.formType; // Prioritize the new form type
+            if (act.type) return act.type; // Fallback to the general type
             if (act.multiattack) return 'multiattack';
             if (act.toHit) return 'attack';
             if (act.save) return 'save';
@@ -597,10 +639,9 @@ function selectActionType(type) {
 
     switch (type) {
         case 'attack': formHTML = getAttackActionFormHTML(action, isNew); break;
-        case 'save': formHTML = getSaveActionFormHTML(action, isNew); break;
+        case 'targeted_effect': formHTML = getTargetedEffectActionFormHTML(action, isNew); break;
         case 'heal': formHTML = getHealActionFormHTML(action, isNew); break;
         case 'pool_heal': formHTML = getPoolHealActionFormHTML(action, isNew); break;
-        case 'effect': formHTML = getEffectActionFormHTML(action, isNew); break;
         case 'multiattack': formHTML = getMultiattackActionFormHTML(action, isNew); break;
         default: console.error(`Unknown action type: ${type}`); return;
     }
@@ -630,26 +671,33 @@ function commitAction() {
     switchEditorTab('actions');
 }
 
-function renderMainEditorInDrawer() {
+function renderMainEditorInDrawer(activeTab = 'stats') {
     const drawerContent = document.getElementById('editor-drawer-content');
     drawerContent.innerHTML = getEditorDrawerHTML();
     _initializeAbilitySelect();
     updateAbilityDescription();
+    if (activeTab !== 'stats') {
+        switchEditorTab(activeTab);
+    }
 }
 
-function _getDurationComponentsHTML(effect) {
+function _getDurationComponentsHTML(effect, index = null) {
     const duration = effect?.duration || {};
     const components = Object.entries(duration).filter(([key]) => !['concentration', 'relativeTo'].includes(key));
 
     const concentrationChecked = duration.concentration ? 'checked' : '';
+    const suffix = index !== null ? `-${index}` : '';
+    const containerId = `duration-components-container${suffix}`;
+    const concentrationCheckboxId = `action-editor-duration-concentration${suffix}`;
+    const relativeCheckboxId = `action-editor-duration-relative${suffix}`;
 
     const rowsHTML = components.map(([unit, value]) => {
         return `
             <div class="duration-component-row flex items-center gap-2 bg-gray-900 p-2 rounded">
-                <input type="number" class="duration-value form-input w-20 text-center" value="${value}">
+                <input type="text" class="duration-value form-input w-20 text-center" value="${value}">
                 <select class="duration-unit form-select flex-grow">
-                    <option value="rounds" ${unit === 'rounds' ? 'selected' : ''}>Rounds (at start)</option>
-                    <option value="turnEnds" ${unit === 'turnEnds' ? 'selected' : ''}>Turns (at end)</option>
+                    <option value="rounds" ${unit === 'rounds' ? 'selected' : ''}>Rounds (start of turn)</option>
+                    <option value="turnEnds" ${unit === 'turnEnds' ? 'selected' : ''}>Rounds (end of turn)</option>
                     <option value="uses" ${unit === 'uses' ? 'selected' : ''}>Uses</option>
                     <option value="minutes" ${unit === 'minutes' ? 'selected' : ''}>Minutes</option>
                     <option value="hours" ${unit === 'hours' ? 'selected' : ''}>Hours</option>
@@ -659,12 +707,12 @@ function _getDurationComponentsHTML(effect) {
         `;
     }).join('');
 
-    const showRelativeToCaster = components.some(([unit]) => unit === 'turnEnds');
+    const showRelativeToCaster = components.some(([unit]) => unit === 'turnEnds' || unit === 'rounds');
     const relativeToCasterHTML = `
         <div data-cy="relative-to-caster-container" style="display: ${showRelativeToCaster ? '' : 'none'};">
             <div class="flex items-center gap-2 mt-2 ml-4">
-                <input type="checkbox" id="action-editor-duration-relative" class="form-checkbox" ${duration.relativeTo === 'source' ? 'checked' : ''}>
-                <label for="action-editor-duration-relative">Relative to Caster</label>
+                <input type="checkbox" id="${relativeCheckboxId}" class="form-checkbox relative-to-caster-checkbox" ${duration.relativeTo === 'source' ? 'checked' : ''}>
+                <label for="${relativeCheckboxId}">Relative to Caster</label>
                 ${_getTooltipHTML("If checked, this duration will count down based on the original caster's turn, not the target's. Useful for effects like True Strike or Vicious Mockery.")}
             </div>
         </div>
@@ -672,13 +720,18 @@ function _getDurationComponentsHTML(effect) {
 
     return `
         <div class="mt-2">
-            <div id="duration-components-container" class="space-y-2">${rowsHTML}</div>
+            <div id="${containerId}" class="space-y-2">${rowsHTML}</div>
             ${relativeToCasterHTML}
             <button data-action="add-duration-component" class="btn btn-secondary w-full mt-2 text-sm">Add Duration Component</button>
             <div class="flex items-center gap-2 mt-3 pt-3 border-t border-gray-600">
-                <input type="checkbox" id="action-editor-duration-concentration" class="form-checkbox" ${concentrationChecked}>
-                <label for="action-editor-duration-concentration">Requires Concentration</label>
+                <input type="checkbox" id="${concentrationCheckboxId}" class="form-checkbox concentration-checkbox" ${concentrationChecked}>
+                <label for="${concentrationCheckboxId}">Requires Concentration</label>
                 ${_getTooltipHTML("If checked, this effect requires the caster to maintain concentration. Taking damage, being incapacitated, or casting another concentration spell can break it.")}
+            </div>
+            <div class="flex items-center gap-2 mt-2">
+                <input type="checkbox" id="action-editor-no-source-${index !== null ? index : ''}" class="form-checkbox no-source-checkbox" ${effect?.noSource ? 'checked' : ''}>
+                <label for="action-editor-no-source-${index !== null ? index : ''}">Effect is Not from a Source</label>
+                ${_getTooltipHTML("Check this for effects like Vicious Mockery, where the debuff applies to the target's next action against anyone, not just against the caster.")}
             </div>
         </div>
     `;
@@ -717,6 +770,50 @@ function _getExtraConfigHTMLForEffect(effect) {
     return extraConfigHTML;
 }
 
+function _getNestedEffectRowHTML(effect = {}, onHitEffectIndex, ruleIndex, nestedIndex) {
+    const effectName = effect.name || '';
+    const conditionOptions = Object.entries(CONDITIONS_LIBRARY)
+        .filter(([, def]) => def.category !== 'internal')
+        .sort(([, a], [, b]) => a.name.localeCompare(b.name))
+        .map(([key, def]) => `<option value="${key}" ${effectName === key ? 'selected' : ''}>${def.name}</option>`)
+        .join('');
+
+    return `
+        <div class="nested-effect-row flex items-center gap-2">
+            <select class="nested-effect-name form-select w-full">
+                <option value="">-- Select Condition --</option>${conditionOptions}
+            </select>
+            <button type="button" data-action="remove-nested-effect" class="btn btn-danger p-1 text-xs">&times;</button>
+        </div>`;
+}
+
+function _getGraduatedEffectRuleHTML(rule = {}, onHitEffectIndex, ruleIndex) {
+    const margin = rule.margin || '';
+    const nestedEffectsHTML = (rule.effects || []).map((effect, nestedIndex) => {
+        return _getNestedEffectRowHTML(effect, onHitEffectIndex, ruleIndex, nestedIndex);
+    }).join('');
+
+    // The duration is now at the rule level. We pass the rule object itself to the duration helper.
+    // We also need a more unique suffix for the duration component IDs.
+    const durationSuffix = `graduated-${onHitEffectIndex ?? 'null'}-${ruleIndex}`;
+    const sharedDurationHTML = _getDurationComponentsHTML(rule, durationSuffix);
+
+    return `
+        <div class="graduated-effect-rule bg-gray-900 p-3 rounded-md border border-gray-700 space-y-3">
+            <div class="graduated-effect-rule-header flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <label class="text-sm font-medium">If save fails by at least</label>
+                    <input type="number" class="graduated-effect-margin form-input w-20 text-center" value="${margin}">
+                </div>
+                <button type="button" data-action="remove-graduated-rule" class="btn btn-danger p-1 text-xs">&times;</button>
+            </div>
+            <div class="shared-duration-container border-t border-b border-gray-800 py-3">${sharedDurationHTML}</div>
+            <div class="nested-effects-container space-y-2">${nestedEffectsHTML}</div>
+            <button type="button" data-action="add-nested-effect" class="btn btn-secondary w-full mt-2 text-sm">Add Effect to this Rule</button>
+        </div>
+    `;
+}
+
 function getActionWizardSelectionHTML() {
     return `
         <div class="flex-shrink-0">
@@ -726,10 +823,9 @@ function getActionWizardSelectionHTML() {
         <div class="flex-grow overflow-y-auto p-1 -m-1">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" data-cy="action-wizard-choices">
                 <button class="wizard-choice-card" data-action="select-action-type" data-type="attack"><h4 class="font-semibold text-white">Make an Attack Roll</h4><p class="text-xs text-gray-400">Actions that use a 'To Hit' roll against a target's AC. (e.g., Sword, Fire Bolt)</p></button>
-                <button class="wizard-choice-card" data-action="select-action-type" data-type="save"><h4 class="font-semibold text-white">Force a Saving Throw</h4><p class="text-xs text-gray-400">Actions that force a target to make a saving throw against your DC. (e.g., Fireball, Poison Spray)</p></button>
+                <button class="wizard-choice-card" data-action="select-action-type" data-type="targeted_effect"><h4 class="font-semibold text-white">Targeted Effect</h4><p class="text-xs text-gray-400">An effect with damage, a save, and/or conditions. (Recommended)</p></button>
                 <button class="wizard-choice-card" data-action="select-action-type" data-type="heal"><h4 class="font-semibold text-white">Provide Healing</h4><p class="text-xs text-gray-400">Actions that restore hit points to a target. (e.g., Cure Wounds, Healing Word)</p></button>
                 <button class="wizard-choice-card" data-action="select-action-type" data-type="pool_heal"><h4 class="font-semibold text-white">Heal from Resource Pool</h4><p class="text-xs text-gray-400">Actions that consume points from a resource pool to heal. (e.g., Lay on Hands)</p></button>
-                <button class="wizard-choice-card" data-action="select-action-type" data-type="effect"><h4 class="font-semibold text-white">Apply an Effect</h4><p class="text-xs text-gray-400">Actions that apply a condition or other effect without direct damage or healing. (e.g., Bless, Bane)</p></button>
                 <button class="wizard-choice-card col-span-1 sm:col-span-2" data-action="select-action-type" data-type="multiattack"><h4 class="font-semibold text-white">Compose a Multiattack</h4><p class="text-xs text-gray-400">Combine multiple other actions into a single sequence. (e.g., 2 Claw attacks and 1 Bite attack)</p></button>
             </div>
         </div>
@@ -769,7 +865,7 @@ function _getSharedActionFormAccordionsHTML(action) {
             <div class="accordion-content">
                 <div class="p-3">
                     <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                        <input type="number" id="action-editor-spellLevel" placeholder="Spell Level (0-9)" class="form-input" value="${action.spellLevel || ''}">
+                        <input type="number" id="action-editor-spellLevel" placeholder="Spell Level (0-9)" class="form-input" value="${action.spellLevel ?? ''}">
                         <input type="number" id="action-editor-targets" placeholder="# of Targets" class="form-input" value="${action.targets || ''}">
                         <div class="flex items-center">
                             <select id="action-editor-targeting" class="form-select w-full">
@@ -789,6 +885,99 @@ function _getSharedActionFormAccordionsHTML(action) {
     `;
 }
 
+function _getActionPropertiesAccordionHTML(action) {
+    if (!window.ACTION_PROPERTIES_LIBRARY || Object.keys(window.ACTION_PROPERTIES_LIBRARY).length === 0) {
+        return '';
+    }
+
+    const propertyOptions = Object.entries(ACTION_PROPERTIES_LIBRARY)
+        .map(([key, prop]) => {
+            const isSelected = action.properties?.includes(key) ? 'selected' : '';
+            return `<option value="${key}" ${isSelected}>${prop.name}</option>`;
+        }).join('');
+
+    return `
+        <div class="accordion-item">
+            <button type="button" class="accordion-header" data-action="toggle-accordion">Action Properties</button>
+            <div class="accordion-content">
+                <div class="p-3">
+                    <select id="action-editor-properties" class="form-select w-full" multiple>${propertyOptions}</select>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function _getOnHitEffectFormHTML(effectData = {}, index) {
+    const conditionOptions = Object.entries(CONDITIONS_LIBRARY)
+        .filter(([, def]) => def.category !== 'internal')
+        .sort(([, a], [, b]) => a.name.localeCompare(b.name))
+        .map(([key, def]) => `<option value="${key}" ${effectData.effect?.name === key ? 'selected' : ''}>${def.name}</option>`)
+        .join('');
+
+    const graduatedEffectsHTML = (effectData.on_fail_by || []).map((rule, ruleIndex) => {
+        return _getGraduatedEffectRuleHTML(rule, index, ruleIndex);
+    }).join('');
+
+    const extraConfigHTML = _getExtraConfigHTMLForEffect(effectData.effect);
+
+    return `
+        <div class="on-hit-effect-form p-3 space-y-4">
+            <div class="space-y-2">
+                <div class="flex items-center justify-between">
+                    <label for="action-editor-onhit-if-target-is" class="block text-sm font-medium text-gray-300">Condition: If Target Is...</label>
+                    ${_getTooltipHTML("If a type is selected, this on-hit effect will only apply if the target's creature type matches.")}
+                </div>
+                <select class="action-editor-onhit-if-target-is form-select w-full" multiple>
+                    <option value="">-- Any Creature Type --</option>
+                    ${CREATURE_TYPES.map(t => `<option value="${t.toLowerCase()}" ${Array.isArray(effectData.if_target_is) && effectData.if_target_is.includes(t.toLowerCase()) ? 'selected' : ''}>${t}</option>`).join('')}
+                </select>
+            </div>
+            <div class="space-y-2">
+                <label class="block text-sm font-medium text-gray-300">Bonus Damage</label>
+                <div class="grid grid-cols-2 gap-2">
+                    <input type="text" class="action-editor-onhit-damage form-input" placeholder="e.g., 7d6" value="${effectData.damage || ''}">
+                    <select class="action-editor-onhit-damage-type form-select">
+                        <option value="">-- Damage Type --</option>
+                        ${DAMAGE_TYPES.map(t => `<option value="${t}" ${effectData.damageType === t ? 'selected' : ''}>${t.charAt(0).toUpperCase() + t.slice(1)}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+            <div class="space-y-2">
+                <label class="block text-sm font-medium text-gray-300">Saving Throw</label>
+                <div class="grid grid-cols-3 gap-2">
+                    <input type="number" class="action-editor-onhit-save-dc form-input" placeholder="DC" value="${effectData.save?.dc || ''}">
+                    <select class="action-editor-onhit-save-type form-select">
+                        <option value="">-- Save Type --</option>
+                        ${['str', 'dex', 'con', 'int', 'wis', 'cha'].map(t => `<option value="${t}" ${effectData.save?.type === t ? 'selected' : ''}>${t.toUpperCase()}</option>`).join('')}
+                    </select>
+                    <select class="action-editor-onhit-on-save form-select">
+                        <option value="negated" ${effectData.on_save === 'negated' ? 'selected' : ''}>Negates Effect</option>
+                        <option value="half" ${effectData.on_save === 'half' ? 'selected' : ''}>Half Damage</option>
+                    </select>
+                </div>
+            </div>
+            <div class="space-y-2">
+                <label class="block text-sm font-medium text-gray-300">Condition on Fail</label>
+                <select class="action-editor-onhit-effect-name form-select w-full">
+                    <option value="">-- No Effect --</option>
+                    ${conditionOptions}
+                </select>
+                <div data-cy="extra-config-container">
+                    ${extraConfigHTML}
+                </div>
+                ${_getDurationComponentsHTML(effectData.effect, index)}
+            </div>
+            
+            <!-- Graduated Effects Section -->
+            <div class="space-y-2 pt-4 border-t border-gray-700">
+                <label class="block text-sm font-medium text-gray-300">Graduated Effects on Save Failure</label>
+                <div id="graduated-effects-container-${index}" class="space-y-2">${graduatedEffectsHTML}</div>
+                <button type="button" data-action="add-graduated-effect" class="btn btn-secondary w-full mt-2 text-sm">Add Graduated Effect</button>
+            </div>
+        </div>`;
+}
+
 function getAttackActionFormHTML(action, isNew) {
     const conditionOptions = Object.entries(CONDITIONS_LIBRARY)
         .filter(([, def]) => def.category !== 'internal')
@@ -796,7 +985,18 @@ function getAttackActionFormHTML(action, isNew) {
         .map(([key, def]) => `<option value="${key}" ${action.on_hit_effect?.effect?.name === key ? 'selected' : ''}>${def.name}</option>`)
         .join('');
 
-    const extraConfigHTML = _getExtraConfigHTMLForEffect(action.on_hit_effect?.effect);
+    // Handle both the new array format and the old single object for backward compatibility.
+    const onHitEffects = action.on_hit_effects || (action.on_hit_effect ? [action.on_hit_effect] : []);
+
+    const onHitEffectsHTML = onHitEffects.map((effect, index) => `
+        <div class="accordion-item on-hit-effect-item">
+            <div class="flex items-center bg-gray-800 rounded-t-md">
+                <button type="button" class="accordion-header flex-grow" data-action="toggle-accordion">Effect on Hit #${index + 1}</button>
+                <button data-action="remove-on-hit-effect" class="btn btn-danger p-1 text-xs mr-2">&times;</button>
+            </div>
+            <div class="accordion-content">${_getOnHitEffectFormHTML(effect, index)}</div>
+        </div>
+    `).join('');
 
     return `
         <div class="flex-shrink-0">
@@ -826,114 +1026,11 @@ function getAttackActionFormHTML(action, isNew) {
                         </div>
                     </div>
                 </div>
-                <div class="accordion-item">
-                    <button type="button" class="accordion-header" data-action="toggle-accordion">Effect on Hit</button>
-                    <div class="accordion-content">
-                        <div class="p-3 space-y-4">
-                            <div class="space-y-2">
-                                <label class="block text-sm font-medium text-gray-300">Bonus Damage</label>
-                                <div class="grid grid-cols-2 gap-2">
-                                    <input type="text" id="action-editor-onhit-damage" placeholder="e.g., 7d6" class="form-input" value="${action.on_hit_effect?.damage || ''}">
-                                    <select id="action-editor-onhit-damage-type" class="form-select">
-                                        <option value="">-- Damage Type --</option>
-                                        ${DAMAGE_TYPES.map(t => `<option value="${t}" ${action.on_hit_effect?.damageType === t ? 'selected' : ''}>${t.charAt(0).toUpperCase() + t.slice(1)}</option>`).join('')}
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="space-y-2">
-                                <label class="block text-sm font-medium text-gray-300">Saving Throw</label>
-                                <div class="grid grid-cols-3 gap-2">
-                                    <input type="number" id="action-editor-onhit-save-dc" placeholder="DC" class="form-input" value="${action.on_hit_effect?.save?.dc || ''}">
-                                    <select id="action-editor-onhit-save-type" class="form-select">
-                                        <option value="">-- Save Type --</option>
-                                        ${['str', 'dex', 'con', 'int', 'wis', 'cha'].map(t => `<option value="${t}" ${action.on_hit_effect?.save?.type === t ? 'selected' : ''}>${t.toUpperCase()}</option>`).join('')}
-                                    </select>
-                                    <select id="action-editor-onhit-on-save" class="form-select">
-                                        <option value="negated" ${action.on_hit_effect?.on_save === 'negated' ? 'selected' : ''}>Negates Effect</option>
-                                        <option value="half" ${action.on_hit_effect?.on_save === 'half' ? 'selected' : ''}>Half Damage</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="space-y-2">
-                                <label class="block text-sm font-medium text-gray-300">Condition on Fail</label>
-                                <select id="action-editor-onhit-effect-name" class="form-select w-full">
-                                    <option value="">-- No Effect --</option>
-                                    ${conditionOptions}
-                                </select>
-                                ${extraConfigHTML}
-                                ${_getDurationComponentsHTML(action.on_hit_effect?.effect)}
-                            </div>
-                        </div>
-                    </div>
+                ${_getActionPropertiesAccordionHTML(action)}
+                <div id="on-hit-effects-container">
+                    ${onHitEffectsHTML}
                 </div>
-            </div>
-        </div>
-        <div class="flex gap-4 mt-6 flex-shrink-0">
-            <button data-action="commit-action" class="btn btn-primary flex-grow">Save Action</button>
-            <button data-action="back-to-main-editor" class="btn btn-secondary">Back</button>
-        </div>
-    `;
-}
-
-function getSaveActionFormHTML(action, isNew) {
-    const saveTypes = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
-    const conditionOptions = Object.keys(CONDITIONS_LIBRARY)
-        .sort()
-        .map(key => `<option value="${key}" ${action.effect?.name === key ? 'selected' : ''}>${CONDITIONS_LIBRARY[key].name}</option>`)
-        .join('');
-
-    const extraConfigHTML = _getExtraConfigHTMLForEffect(action.effect);
-
-    return `
-        <div class="flex-shrink-0">
-            <h3 class="font-semibold text-lg mb-4 text-white">${isNew ? 'New Saving Throw Action' : `Editing: ${action.name}`}</h3>
-        </div>
-        <div class="flex-grow overflow-y-auto p-1 -m-1">
-            <input type="hidden" id="action-editor-form-type" value="save">
-            <div class="space-y-2">
-                <input type="text" id="action-editor-name" placeholder="Action Name" class="form-input" value="${action.name || ''}">
-                ${_getSharedActionFormAccordionsHTML(action)}
-                <h4 class="action-form-section-header mt-4">Action-Specific Properties</h4>
-                <div class="accordion-item">
-                    <button type="button" class="accordion-header" data-action="toggle-accordion">Saving Throw</button>
-                    <div class="accordion-content">
-                        <div class="p-3 grid grid-cols-2 sm:grid-cols-3 gap-4">
-                            <input type="number" id="action-editor-save-dc" placeholder="Save DC" class="form-input" value="${action.save?.dc || ''}">
-                            <select id="action-editor-save-type" class="form-select">
-                                <option value="">Save Type</option>
-                                ${saveTypes.map(t => `<option value="${t}" ${action.save?.type === t ? 'selected' : ''}>${t.toUpperCase()}</option>`).join('')}
-                            </select>
-                            <div class="flex items-center gap-2 col-span-2 sm:col-span-1">
-                                <input type="checkbox" id="action-editor-half" class="form-checkbox" ${action.half ? 'checked' : ''}>
-                                <div class="flex items-center">
-                                    <label for="action-editor-half">Half damage on save</label>
-                                </div>
-                            </div>
-                            <input type="text" id="action-editor-damage" placeholder="Damage (e.g. 8d6)" class="form-input col-span-2" value="${action.damage || ''}">
-                            <select id="action-editor-type" class="form-select">
-                                <option value="">-- Damage Type --</option>
-                                ${DAMAGE_TYPES.map(t => `<option value="${t}" ${action.damageType === t ? 'selected' : ''}>${t.charAt(0).toUpperCase() + t.slice(1)}</option>`).join('')}
-                            </select>
-                            <div class="flex items-center gap-2">
-                                <input type="checkbox" id="action-editor-ranged" class="form-checkbox" ${action.ranged ? 'checked' : ''}>
-                                <label for="action-editor-ranged">Ranged</label>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="accordion-item">
-                    <button type="button" class="accordion-header" data-action="toggle-accordion">Effect on Fail</button>
-                    <div class="accordion-content">
-                        <div class="p-3">
-                            <select id="action-editor-effect-name" class="form-select w-full">
-                                <option value="">-- No Effect --</option>
-                                ${conditionOptions}
-                            </select>
-                            ${extraConfigHTML}
-                            ${_getDurationComponentsHTML(action.effect)}
-                        </div>
-                    </div>
-                </div>
+                <button data-action="add-on-hit-effect" class="btn btn-secondary w-full mt-2 text-sm">Add On-Hit Effect</button>
             </div>
         </div>
         <div class="flex gap-4 mt-6 flex-shrink-0">
@@ -962,6 +1059,7 @@ function getHealActionFormHTML(action, isNew) {
                         </div>
                     </div>
                 </div>
+                ${_getActionPropertiesAccordionHTML(action)}
             </div>
         </div>
         <div class="flex gap-4 mt-6 flex-shrink-0">
@@ -974,11 +1072,13 @@ function getHealActionFormHTML(action, isNew) {
 function getPoolHealActionFormHTML(action, isNew) {
     const { combatant } = appState.getEditorState();
     const availablePools = Object.entries(combatant.abilities || {})
-        .filter(([, value]) => typeof value === 'object' && value.pool !== undefined)
-        .map(([key]) => ABILITIES_LIBRARY[key]?.name || key);
+        .filter(([, value]) => typeof value === 'object' && value.pool !== undefined);
 
     const poolOptions = availablePools.length > 0
-        ? availablePools.map(poolName => `<option value="${poolName}" ${action.poolName === poolName ? 'selected' : ''}>${poolName}</option>`).join('')
+        ? availablePools.map(([key, value]) => {
+            const displayName = ABILITIES_LIBRARY[key]?.name || key;
+            return `<option value="${key}" ${action.poolName === key ? 'selected' : ''}>${displayName}</option>`;
+        }).join('')
         : '<option value="">-- No resource pools defined --</option>';
 
     return `
@@ -1000,47 +1100,7 @@ function getPoolHealActionFormHTML(action, isNew) {
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
-        <div class="flex gap-4 mt-6 flex-shrink-0">
-            <button data-action="commit-action" class="btn btn-primary flex-grow">Save Action</button>
-            <button data-action="back-to-main-editor" class="btn btn-secondary">Back</button>
-        </div>
-    `;
-}
-
-function getEffectActionFormHTML(action, isNew) {
-    const conditionOptions = Object.entries(CONDITIONS_LIBRARY)
-        .filter(([, def]) => def.category !== 'internal')
-        .sort(([, a], [, b]) => a.name.localeCompare(b.name))
-        .map(([key, def]) => `<option value="${key}" ${action.effect?.name === key ? 'selected' : ''}>${def.name}</option>`)
-        .join('');
-
-    const extraConfigHTML = _getExtraConfigHTMLForEffect(action.effect);
-
-    return `
-        <div class="flex-shrink-0">
-            <h3 class="font-semibold text-lg mb-4 text-white">${isNew ? 'New Effect Action' : `Editing: ${action.name}`}</h3>
-        </div>
-        <div class="flex-grow overflow-y-auto p-1 -m-1">
-            <input type="hidden" id="action-editor-form-type" value="effect">
-            <div class="space-y-2">
-                <input type="text" id="action-editor-name" placeholder="Action Name" class="form-input" value="${action.name || ''}">
-                ${_getSharedActionFormAccordionsHTML(action)}
-                <h4 class="action-form-section-header mt-4">Action-Specific Properties</h4>
-                <div class="accordion-item">
-                    <button type="button" class="accordion-header" data-action="toggle-accordion">Effect</button>
-                    <div class="accordion-content">
-                        <div class="p-3">
-                            <select id="action-editor-effect-name" class="form-select w-full">
-                                <option value="">-- No Effect --</option>
-                                ${conditionOptions}
-                            </select>
-                            ${extraConfigHTML}
-                            ${_getDurationComponentsHTML(action.effect)}
-                        </div>
-                    </div>
-                </div>
+                ${_getActionPropertiesAccordionHTML(action)}
             </div>
         </div>
         <div class="flex gap-4 mt-6 flex-shrink-0">
@@ -1086,6 +1146,97 @@ function getMultiattackActionFormHTML(action, isNew) {
                     <div class="accordion-content">
                         <div class="p-3 space-y-2" data-cy="multiattack-options">${subActionCheckboxes}</div>
                     </div>
+                </div>
+            </div>
+        </div>
+        <div class="flex gap-4 mt-6 flex-shrink-0">
+            <button data-action="commit-action" class="btn btn-primary flex-grow">Save Action</button>
+            <button data-action="back-to-main-editor" class="btn btn-secondary">Back</button>
+        </div>
+    `;
+}
+
+function _getTargetedEffectConditionRowHTML(condition = {}, index) {
+    const conditionName = condition.name || '';
+    const conditionOptions = Object.entries(CONDITIONS_LIBRARY)
+        .filter(([, def]) => def.category !== 'internal')
+        .sort(([, a], [, b]) => a.name.localeCompare(b.name))
+        .map(([key, def]) => `<option value="${key}" ${conditionName === key ? 'selected' : ''}>${def.name}</option>`)
+        .join('');
+
+    const extraConfigHTML = _getExtraConfigHTMLForEffect(condition);
+
+    return `
+        <div class="targeted-effect-condition-row bg-gray-800 p-3 rounded-md border border-gray-700">
+            <select class="targeted-effect-condition-name form-select w-full">
+                <option value="">-- Select Condition --</option>${conditionOptions}
+            </select>
+            <div data-cy="extra-config-container">${extraConfigHTML}</div>
+            ${_getDurationComponentsHTML(condition, index)}
+        </div>`;
+}
+
+function getTargetedEffectActionFormHTML(action, isNew) {
+    // This is the initial implementation for the new streamlined UI.
+    // It includes the key elements required by the failing test from Step 2.1.
+    return `
+        <div class="flex-shrink-0">
+            <h3 class="font-semibold text-lg mb-4 text-white">${isNew ? 'New Targeted Effect Action' : `Editing: ${action.name}`}</h3>
+        </div>
+        <div class="flex-grow overflow-y-auto p-1 -m-1">
+            <input type="hidden" id="action-editor-form-type" value="targeted_effect">
+            <div class="space-y-2">
+                <input type="text" id="action-editor-name" placeholder="Action Name" class="form-input" value="${action.name || ''}">
+                ${_getSharedActionFormAccordionsHTML(action)}
+                <h4 class="action-form-section-header mt-4">Action-Specific Properties</h4>
+                
+                <div class="accordion-item">
+                    <button type="button" class="accordion-header" data-action="toggle-accordion">Saving Throw</button>
+                    <div class="accordion-content">
+                        <div class="p-3 space-y-4">
+                            <div class="flex items-center gap-2">
+                                <input type="checkbox" id="action-editor-enable-save" class="form-checkbox" ${action.save ? 'checked' : ''}>
+                                <label for="action-editor-enable-save">Enable Saving Throw</label>
+                            </div>
+                            <div id="save-fields-container" class="grid grid-cols-2 sm:grid-cols-3 gap-4 ${action.save ? '' : 'hidden'}">
+                                <input type="number" id="action-editor-save-dc" placeholder="Save DC" class="form-input" value="${action.save?.dc || ''}">
+                                <select id="action-editor-save-type" class="form-select">
+                                    <option value="">-- Save Type --</option>
+                                    ${['str', 'dex', 'con', 'int', 'wis', 'cha'].map(t => `<option value="${t}" ${action.save?.type === t ? 'selected' : ''}>${t.toUpperCase()}</option>`).join('')}
+                                </select>
+                                <div class="flex items-center gap-2 col-span-2 sm:col-span-1"><input type="checkbox" id="action-editor-half" class="form-checkbox" ${action.half ? 'checked' : ''}><label for="action-editor-half">Half damage on save</label></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="accordion-item">
+                    <button type="button" class="accordion-header" data-action="toggle-accordion">Damage</button>
+                    <div class="accordion-content">
+                        <div class="p-3">
+                            <div class="grid grid-cols-2 gap-2">
+                                <input type="text" id="action-editor-damage" placeholder="Damage (e.g. 2d6+3)" class="form-input" value="${action.damage || ''}">
+                                <select id="action-editor-damage-type" class="form-select">
+                                    <option value="">-- Damage Type --</option>
+                                    ${DAMAGE_TYPES.map(t => `<option value="${t}" ${action.damageType === t ? 'selected' : ''}>${t.charAt(0).toUpperCase() + t.slice(1)}</option>`).join('')}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                ${_getActionPropertiesAccordionHTML(action)}
+
+                <div id="conditions-section">
+                    <div id="targeted-effect-conditions-container" class="space-y-2">
+                        ${(action.effect ? [_getTargetedEffectConditionRowHTML(action.effect, 0)] : []).join('')}
+                    </div>
+                    <button data-action="add-targeted-effect-condition" class="btn btn-secondary w-full mt-2 text-sm">Add Condition</button>
+                </div>
+                <div class="space-y-2 pt-4 border-t border-gray-700">
+                    <label class="block text-sm font-medium text-gray-300">Graduated Effects on Save Failure</label>
+                    <div id="graduated-effects-container-null" class="space-y-2">${(action.on_fail_by || []).map((rule, ruleIndex) => _getGraduatedEffectRuleHTML(rule, null, ruleIndex)).join('')}</div>
+                    <button type="button" data-action="add-graduated-effect" class="btn btn-secondary w-full mt-2 text-sm">Add Graduated Effect</button>
                 </div>
             </div>
         </div>

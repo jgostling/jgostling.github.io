@@ -197,6 +197,11 @@ function getConditionEffects(combatant) {
         // Other effects will be added dynamically
     };
     const processedConditions = new Set();
+    // This is the fix: Gracefully handle cases where status or conditions might not exist yet,
+    // which can happen when a combatant is being created (e.g., during threat calculation).
+    if (!combatant.status?.conditions) {
+        return allEffects;
+    }
     const conditionQueue = [...(combatant.status.conditions.map(c => c.name))];
 
     while (conditionQueue.length > 0) {
