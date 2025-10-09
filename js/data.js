@@ -1,10 +1,10 @@
-// js/data.js
-
-var sizeOrder = ['tiny', 'small', 'medium', 'large', 'huge', 'gargantuan'];
 var DAMAGE_TYPES = [
     'acid', 'bludgeoning', 'cold', 'fire', 'force', 'lightning', 
     'necrotic', 'piercing', 'poison', 'psychic', 'radiant', 'slashing', 'thunder'
 ].sort();
+
+var sizeOrder = ['tiny', 'small', 'medium', 'large', 'huge', 'gargantuan'];
+
 var CORE_IMMUNITY_CONDITIONS = [
     'blinded', 'charmed', 'deafened', 'frightened', 'grappled', 'incapacitated', 
     'invisible', 'paralyzed', 'petrified', 'poisoned', 'prone', 'restrained', 'stunned', 'unconscious'

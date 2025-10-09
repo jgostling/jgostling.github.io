@@ -8,7 +8,9 @@
     font-size: 1rem; /* Match other inputs */
 }
 
-#ability-select-wrapper .choices {
+/* Apply dark theme to both Choices.js instances */
+#ability-select-wrapper .choices,
+#library-type-select-wrapper .choices {
     /* Override CSS variables for our dark theme */
     --choices-bg-color: #374151; /* bg-gray-700 for the main input area */
     --choices-bg-color-dropdown: #1f2937; /* bg-gray-800 for the dropdown list */
@@ -16,6 +18,8 @@
     --choices-text-color: #d1d5db; /* text-gray-300 */
     --choices-highlighted-color: #374151; /* bg-gray-700 for highlighted items */
     --choices-item-disabled-color: #6b7280; /* text-gray-500 */
+    /* Add a consistent bottom margin to match other filter controls. */
+    margin-bottom: 1rem;
 }
 
 .choices__inner {

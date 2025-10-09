@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="vendor/nouislider/nouislider.min.css">
     <link rel="stylesheet" href="vendor/choices/choices.min.css">
     <link rel="stylesheet" href="css/custom-choices.css" />
 </head>
@@ -27,7 +28,10 @@
                 <div id="team-a-panel" class="card space-y-4">
                     <h2 class="text-2xl title-font font-semibold text-blue-400 border-b border-gray-700 pb-2">Team A</h2>
                     <div id="team-a-list" class="space-y-2"></div>
-                    <button data-action="open-add-editor" data-team="A" class="btn btn-secondary w-full">Add New Combatant</button>
+                    <div class="grid grid-cols-2 gap-4">
+                        <button data-action="open-add-editor" data-team="A" class="btn btn-secondary w-full">Add Custom</button>
+                        <button data-action="open-library-modal" data-team="A" class="btn btn-secondary w-full">Add from Library</button>
+                    </div>
                     <div class="grid grid-cols-2 gap-4">
                         <button data-action="save-team" data-team="A" class="btn btn-secondary w-full">Save Team</button>
                         <button data-action="load-team" data-team="A" class="btn btn-secondary w-full">Load Team</button>
@@ -38,7 +42,10 @@
                 <div id="team-b-panel" class="card space-y-4">
                     <h2 class="text-2xl title-font font-semibold text-red-400 border-b border-gray-700 pb-2">Team B</h2>
                     <div id="team-b-list" class="space-y-2"></div>
-                    <button data-action="open-add-editor" data-team="B" class="btn btn-secondary w-full">Add New Combatant</button>
+                    <div class="grid grid-cols-2 gap-4">
+                        <button data-action="open-add-editor" data-team="B" class="btn btn-secondary w-full">Add Custom</button>
+                        <button data-action="open-library-modal" data-team="B" class="btn btn-secondary w-full">Add from Library</button>
+                    </div>
                     <div class="grid grid-cols-2 gap-4">
                         <button data-action="save-team" data-team="B" class="btn btn-secondary w-full">Save Team</button>
                         <button data-action="load-team" data-team="B" class="btn btn-secondary w-full">Load Team</button>
@@ -74,10 +81,18 @@
     </div>
 
     <!-- Editor Drawer -->
-    <div id="editor-drawer-overlay" class="hidden fixed inset-0 bg-black bg-opacity-75 z-40"></div>
-    <div id="editor-drawer" class="fixed top-0 h-full bg-gray-800 w-full max-w-2xl shadow-lg z-50">
+    <div id="editor-drawer-overlay" class="drawer-overlay hidden"></div>
+    <div id="editor-drawer" class="drawer right-drawer flex flex-col">
         <div id="editor-drawer-content" class="p-6 h-full flex flex-col">
             <!-- Editor content will be injected here -->
+        </div>
+    </div>
+
+    <!-- Library Drawer -->
+    <div id="library-drawer-overlay" class="drawer-overlay hidden"></div>
+    <div id="library-drawer" class="drawer left-drawer flex flex-col">
+        <div id="library-drawer-content" class="h-full flex flex-col">
+            <!-- Library content will be injected here -->
         </div>
     </div>
 
@@ -88,6 +103,7 @@
     <script src="js/conditions.js"></script>
     <script src="js/abilities.js"></script>
     <script src="js/action_properties.js"></script>
+    <script src="js/monster_library_data.js"></script>
     <script src="js/eventbus.js"></script>
     <script src="js/utils.js"></script>
     <script src="js/state.js"></script>
@@ -95,6 +111,7 @@
     <script src="js/ui.js"></script>
     <script src="js/simulation.js"></script>
     <script src="js/main.js"></script>
+    <script src="vendor/nouislider/nouislider.min.js"></script>
     <script src="vendor/choices/choices.min.js"></script>
 </body>
 </html>

@@ -5,17 +5,20 @@ const CREATURE_TYPES = [
     'Fey', 'Fiend', 'Giant', 'Humanoid', 'Monstrosity', 'Ooze', 'Plant', 'Undead'
 ];
 
+let tooltipCounter = 0;
+
 function renderTeams() {
-    const { teamA, teamB } = appState.getTeams();
-    document.getElementById('team-a-list').innerHTML = teamA.map(c => renderCombatantCard(c, 'A')).join('');
-    document.getElementById('team-b-list').innerHTML = teamB.map(c => renderCombatantCard(c, 'B')).join('');
+  const { teamA, teamB } = appState.getTeams();
+  document.getElementById('team-a-list').innerHTML = teamA.map(c => renderCombatantCard(c, 'A')).join('');
+  document.getElementById('team-b-list').innerHTML = teamB.map(c => renderCombatantCard(c, 'B')).join('');
 }
 
 function _getTooltipHTML(text) {
+    const tooltipId = `tooltip-${tooltipCounter++}`;
     return `
         <span class="tooltip-container">
-            <span class="tooltip-icon" data-action="toggle-tooltip">?</span>
-            <span class="tooltip-box">${text}</span>
+            <span class="tooltip-icon" data-action="toggle-tooltip" data-tooltip-id="${tooltipId}">?</span>
+            <span id="${tooltipId}" class="tooltip-box">${text}</span>
         </span>
     `;
 }
@@ -55,7 +58,7 @@ function openEditorDrawer(team, id = null) {
     const drawer = document.getElementById('editor-drawer');
     const overlay = document.getElementById('editor-drawer-overlay');
 
-    drawerContent.innerHTML = getEditorDrawerHTML();
+    drawerContent.innerHTML = getEditorDrawerHTML(); // This function renders the content
     overlay.classList.remove('hidden');
     drawer.classList.add('active');
     _initializeAbilitySelect();
@@ -73,7 +76,7 @@ function closeEditorDrawer() {
     appState.clearEditorState();
 }
 
-function getEditorDrawerHTML() {
+function getEditorDrawerHTML(options = {}) {
     const { combatant, team, isEditing } = appState.getEditorState();
     const data = combatant || {};
     const prefix = 'editor';
@@ -87,6 +90,8 @@ function getEditorDrawerHTML() {
     const init_mod = data.initiative_mod || 0;
     const saves = data.saves || { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 };
     const spell_slots = data.spell_slots || { 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0 };
+
+    const activeAccordionId = options.activeAccordionId || 'general';
 
     const currentAbilities = data.abilities ? Object.keys(data.abilities) : [];
     const availableAbilities = Object.entries(ABILITIES_LIBRARY)
@@ -106,75 +111,81 @@ function getEditorDrawerHTML() {
         <div class="flex-shrink-0">
             <h3 class="font-semibold text-lg mb-2 text-white">${isEditing ? `Editing ${name}` : `Add Combatant to Team ${team}`}</h3>
             <input type="hidden" id="id-${prefix}" value="${data.id || ''}">
-            
-            <div class="flex border-b border-gray-700 mb-4">
-                <button class="tab active" data-action="switch-tab" data-tab="stats">Core Stats</button>
-                <button class="tab" data-action="switch-tab" data-tab="actions">Attacks & Spells</button>
-                <button class="tab" data-action="switch-tab" data-tab="abilities">Abilities</button>
-            </div>
         </div>
 
         <div class="flex-grow overflow-y-auto p-1 -m-1">
-            <div id="tab-${prefix}-stats" class="tab-content active space-y-4">
-                <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                    <input type="text" id="${prefix}-name" placeholder="Name" class="form-input col-span-2 sm:col-span-1" value="${name}">
-                    <div class="flex items-center">
-                        <select id="${prefix}-type" class="form-select w-full">
-                            <option value="">-- Select Type --</option>
-                            ${typeOptions}
-                        </select>
-                        ${_getTooltipHTML('Creature type, e.g., "Fiend" or "Undead". This can interact with certain abilities like Divine Smite.')}
+            <div class="space-y-2">
+                <div class="accordion-item ${activeAccordionId === 'general' ? 'active' : ''}">
+                    <button type="button" class="accordion-header" data-action="toggle-accordion" data-accordion-id="general">General</button>
+                    <div class="accordion-content">
+                        <div class="p-3">
+                            <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                                <input type="text" id="${prefix}-name" placeholder="Name" class="form-input col-span-2 sm:col-span-1" value="${name}">
+                                <div class="flex items-center">
+                                    <select id="${prefix}-type" class="form-select w-full">
+                                        <option value="">-- Select Type --</option>
+                                        ${typeOptions}
+                                    </select>
+                                    ${_getTooltipHTML('Creature type, e.g., "Fiend" or "Undead". This can interact with certain abilities like Divine Smite.')}
+                                </div>
+                                <input type="number" id="${prefix}-hp" placeholder="HP" class="form-input" value="${hp}">
+                                <input type="number" id="${prefix}-ac" placeholder="AC" class="form-input" value="${ac}">
+                                <select id="${prefix}-size" class="form-select">${sizeOrder.map(s => `<option value="${s}" ${s === size ? 'selected' : ''}>${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}</select>
+                                <div class="flex items-center">
+                                    <select id="${prefix}-role" class="form-select w-full">
+                                        <option value="frontline" ${role === 'frontline' ? 'selected' : ''}>Frontline</option>
+                                        <option value="backline" ${role === 'backline' ? 'selected' : ''}>Backline</option>
+                                    </select>
+                                    ${_getTooltipHTML('Determines targeting priority. Melee attackers must target available "Frontline" combatants before "Backline" ones.')}
+                                </div>
+                                <input type="number" id="${prefix}-init_mod" placeholder="Init Mod" class="form-input" value="${init_mod}">
+                                <div class="flex items-center gap-2">
+                                    <input type="checkbox" id="${prefix}-wears-metal-armor" class="form-checkbox" ${data.armor?.material === 'metal' ? 'checked' : ''}>
+                                    <label for="${prefix}-wears-metal-armor">Wears Metal Armor</label>
+                                </div>
+                                <input type="number" id="${prefix}-count" placeholder="Count" value="1" class="form-input" ${isEditing ? 'disabled' : ''}>
+                            </div>
+                        </div>
                     </div>
-                    <input type="number" id="${prefix}-hp" placeholder="HP" class="form-input" value="${hp}">
-                    <input type="number" id="${prefix}-ac" placeholder="AC" class="form-input" value="${ac}">
-                    <select id="${prefix}-size" class="form-select">${sizeOrder.map(s => `<option value="${s}" ${s === size ? 'selected' : ''}>${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}</select>
-                    <div class="flex items-center">
-                        <select id="${prefix}-role" class="form-select w-full">
-                            <option value="frontline" ${role === 'frontline' ? 'selected' : ''}>Frontline</option>
-                            <option value="backline" ${role === 'backline' ? 'selected' : ''}>Backline</option>
-                        </select>
-                        ${_getTooltipHTML('Determines targeting priority. Melee attackers must target available "Frontline" combatants before "Backline" ones.')}
-                    </div>
-                    <input type="number" id="${prefix}-init_mod" placeholder="Init Mod" class="form-input" value="${init_mod}">
-                    <div class="flex items-center gap-2">
-                        <input type="checkbox" id="${prefix}-wears-metal-armor" class="form-checkbox" ${data.armor?.material === 'metal' ? 'checked' : ''}>
-                        <label for="${prefix}-wears-metal-armor">Wears Metal Armor</label>
-                    </div>
-                    <input type="number" id="${prefix}-count" placeholder="Count" value="1" class="form-input" ${isEditing ? 'disabled' : ''}>
                 </div>
-                <h4 class="font-semibold pt-2 border-t border-gray-600">Saving Throws</h4>
-                <div class="grid grid-cols-3 gap-4">
-                    ${Object.keys(saves).map(s => `<input type="number" id="${prefix}-save-${s}" placeholder="${s.toUpperCase()}" class="form-input" value="${saves[s]}">`).join('')}
+                <div class="accordion-item ${activeAccordionId === 'saving-throws' ? 'active' : ''}">
+                    <button type="button" class="accordion-header" data-action="toggle-accordion" data-accordion-id="saving-throws">Saving Throws</button>
+                    <div class="accordion-content"><div class="p-3"><div class="grid grid-cols-3 gap-4">${Object.keys(saves).map(s => `<input type="number" id="${prefix}-save-${s}" placeholder="${s.toUpperCase()}" class="form-input" value="${saves[s]}">`).join('')}</div></div></div>
                 </div>
-                 <h4 class="font-semibold pt-2 border-t border-gray-600">Spell Slots</h4>
-                <div class="grid grid-cols-3 sm:grid-cols-5 gap-4">
-                    ${Object.keys(spell_slots).map(s => `<input type="number" id="${prefix}-slot-${s}" placeholder="Lvl ${s}" class="form-input" value="${spell_slots[s]}">`).join('')}
+                <div class="accordion-item ${activeAccordionId === 'spell-slots' ? 'active' : ''}">
+                    <button type="button" class="accordion-header" data-action="toggle-accordion" data-accordion-id="spell-slots">Spell Slots</button>
+                    <div class="accordion-content"><div class="p-3"><div class="grid grid-cols-3 sm:grid-cols-5 gap-4">${Object.keys(spell_slots).map(s => `<input type="number" id="${prefix}-slot-${s}" placeholder="Lvl ${s}" class="form-input" value="${spell_slots[s]}">`).join('')}</div></div></div>
                 </div>
             </div>
 
-            <div id="tab-${prefix}-actions" class="tab-content">
-                <div id="action-list-container" class="space-y-2 max-h-64 overflow-y-auto p-1">
-                    ${renderActionListHTML(data.attacks || [])}
-                </div>
-                <div class="mt-4">
-                    <button data-action="open-action-editor" class="btn btn-secondary w-full">Add New Action</button>
+            <div class="accordion-item mt-2 ${activeAccordionId === 'abilities' ? 'active' : ''}">
+                <button type="button" class="accordion-header" data-action="toggle-accordion" data-accordion-id="abilities">Abilities</button>
+                <div class="accordion-content">
+                    <div class="p-3">
+                        <div id="ability-select-wrapper">
+                            <select id="ability-select" class="form-select flex-grow">
+                                <option value="">-- Select an Ability --</option>
+                                ${abilityOptions}
+                            </select>
+                        </div>
+                        <div class="flex gap-2 items-center mt-2"><button data-action="configure-selected-ability" class="btn btn-secondary flex-grow">Add</button></div>
+                        <div id="ability-description-container" class="ability-description mt-3 p-2 bg-gray-900 rounded-md"></div>
+                        <div id="ability-list-container" class="mt-4 space-y-2 max-h-64 overflow-y-auto p-1">${renderAbilityListHTML(data.abilities || {})}</div>
+                    </div>
                 </div>
             </div>
 
-            <div id="tab-${prefix}-abilities" class="tab-content">
-                <div id="ability-select-wrapper">
-                    <select id="ability-select" class="form-select flex-grow">
-                        <option value="">-- Select an Ability --</option>
-                        ${abilityOptions}
-                    </select>
-                </div>
-                <div class="flex gap-2 items-center mt-2">
-                    <button data-action="configure-selected-ability" class="btn btn-secondary flex-grow">Add</button>
-                </div>
-
-                <div id="ability-description-container" class="ability-description mt-3 p-2 bg-gray-900 rounded-md"></div>
-                <div id="ability-list-container" class="mt-4 space-y-2 max-h-64 overflow-y-auto p-1">
-                    ${renderAbilityListHTML(data.abilities || {})}
+            <div class="accordion-item mt-2 ${activeAccordionId === 'actions' ? 'active' : ''}">
+                <button type="button" class="accordion-header" data-action="toggle-accordion" data-accordion-id="actions">Actions</button>
+                <div class="accordion-content">
+                    <div class="p-3">
+                        <div id="action-list-container" class="space-y-2 max-h-64 overflow-y-auto p-1">
+                            ${renderActionListHTML(data.attacks || [])}
+                        </div>
+                        <div class="mt-4">
+                            <button data-action="open-action-editor" class="btn btn-secondary w-full">Add New Action</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -208,14 +219,6 @@ function handleCommit() {
     }
     renderTeams();
     closeEditorDrawer();
-}
-
-function switchEditorTab(tabName) {
-    const prefix = 'editor';
-    document.querySelectorAll(`#editor-drawer-content .tab`).forEach(t => t.classList.remove('active'));
-    document.querySelectorAll(`#editor-drawer-content .tab-content`).forEach(c => c.classList.remove('active'));
-    document.querySelector(`#editor-drawer-content button[data-tab="${tabName}"]`).classList.add('active');
-    document.getElementById(`tab-${prefix}-${tabName}`).classList.add('active');
 }
 
 function _initializeAbilitySelect() {
@@ -392,8 +395,7 @@ function removeActionFromEditor(index) {
     }
 
     combatant.attacks.splice(actionIndex, 1);
-    renderMainEditorInDrawer();
-    switchEditorTab('actions');
+    renderMainEditorInDrawer({ activeAccordionId: 'actions' });
 }
 
 function cancelActionEditor() {
@@ -596,16 +598,14 @@ function commitAbility(key) {
     }
 
     combatant.abilities[key] = value;
-    renderMainEditorInDrawer();
-    switchEditorTab('abilities');
+    renderMainEditorInDrawer({ activeAccordionId: 'abilities' });
 }
 
 function removeAbilityFromEditor(key) {
     const { combatant } = appState.getEditorState();
     if (combatant && combatant.abilities && combatant.abilities.hasOwnProperty(key)) {
         delete combatant.abilities[key];
-        renderMainEditorInDrawer();
-        switchEditorTab('abilities');
+        renderMainEditorInDrawer({ activeAccordionId: 'abilities' });
     }
 }
 
@@ -667,18 +667,14 @@ function commitAction() {
         combatant.attacks[index] = newAction;
     }
 
-    renderMainEditorInDrawer();
-    switchEditorTab('actions');
+    renderMainEditorInDrawer({ activeAccordionId: 'actions' });
 }
 
-function renderMainEditorInDrawer(activeTab = 'stats') {
+function renderMainEditorInDrawer(options = {}) {
     const drawerContent = document.getElementById('editor-drawer-content');
-    drawerContent.innerHTML = getEditorDrawerHTML();
+    drawerContent.innerHTML = getEditorDrawerHTML(options);
     _initializeAbilitySelect();
     updateAbilityDescription();
-    if (activeTab !== 'stats') {
-        switchEditorTab(activeTab);
-    }
 }
 
 function _getDurationComponentsHTML(effect, index = null) {
@@ -1245,4 +1241,310 @@ function getTargetedEffectActionFormHTML(action, isNew) {
             <button data-action="back-to-main-editor" class="btn btn-secondary">Back</button>
         </div>
     `;
+}
+
+// --- Dynamic UI Rendering Handlers ---
+
+function handleAddDurationComponent(target) {
+    const scope = target.closest('.on-hit-effect-form, .accordion-content, .graduated-effect-rule, .targeted-effect-condition-row');
+    const container = scope.querySelector('[id^="duration-components-container"]');
+    const newRow = document.createElement('div');
+    newRow.className = 'duration-component-row flex items-center gap-2 bg-gray-900 p-2 rounded';
+    newRow.innerHTML = `
+        <input type="text" class="duration-value form-input w-20 text-center" value="1">
+        <select class="duration-unit form-select flex-grow">
+            <option value="rounds">Rounds (start of turn)</option>
+            <option value="turnEnds">Rounds (end of turn)</option>
+            <option value="uses">Uses</option>
+            <option value="minutes">Minutes</option>
+            <option value="hours">Hours</option>
+        </select>
+        <button data-action="remove-duration-component" class="btn btn-danger p-1 text-xs">&times;</button>
+    `;
+    container.appendChild(newRow);
+    _updateRelativeToCasterVisibility(scope);
+}
+
+function handleAddOnHitEffect() {
+    const container = document.getElementById('on-hit-effects-container');
+    if (container) {
+        const newIndex = container.children.length;
+        const newItem = document.createElement('div');
+        newItem.className = 'accordion-item on-hit-effect-item';
+        newItem.innerHTML = `
+            <div class="flex items-center bg-gray-800 rounded-t-md">
+                <button type="button" class="accordion-header flex-grow" data-action="toggle-accordion">Effect on Hit #${newIndex + 1}</button>
+                <button data-action="remove-on-hit-effect" class="btn btn-danger p-1 text-xs mr-2">&times;</button>
+            </div>
+            <div class="accordion-content">${_getOnHitEffectFormHTML({}, newIndex)}</div>
+        `;
+        container.appendChild(newItem);
+    }
+}
+
+function handleAddGraduatedEffect(target) {
+    const parentForm = target.closest('.on-hit-effect-form, .accordion-content, .flex-grow');
+    if (!parentForm) return;
+    const container = parentForm.querySelector('[id^="graduated-effects-container-"]');
+    if (!container) return;
+    const onHitIndex = container.id.split('-').pop();
+    const newIndex = container.querySelectorAll('.graduated-effect-rule').length;
+    const newRuleHTML = _getGraduatedEffectRuleHTML({}, onHitIndex, newIndex);
+    container.insertAdjacentHTML('beforeend', newRuleHTML);
+}
+
+function handleAddTargetedEffectCondition() {
+    const container = document.getElementById('targeted-effect-conditions-container');
+    const newIndex = container.querySelectorAll('.targeted-effect-condition-row').length;
+    const newRowHTML = _getTargetedEffectConditionRowHTML({}, newIndex);
+    container.insertAdjacentHTML('beforeend', newRowHTML);
+}
+
+function handleRemoveGraduatedRule(target) { target.closest('.graduated-effect-rule').remove(); }
+function handleAddNestedEffect(target) {
+    const ruleCard = target.closest('.graduated-effect-rule');
+    const container = ruleCard.querySelector('.nested-effects-container');
+    const newIndex = container.children.length;
+    const newRowHTML = _getNestedEffectRowHTML({}, null, null, newIndex);
+    container.insertAdjacentHTML('beforeend', newRowHTML);
+}
+function handleRemoveNestedEffect(target) { target.closest('.nested-effect-row').remove(); }
+function handleRemoveOnHitEffect(target) {
+    target.closest('.on-hit-effect-item').remove();
+    const remainingEffects = document.querySelectorAll('#on-hit-effects-container .on-hit-effect-item');
+    remainingEffects.forEach((item, idx) => {
+        item.querySelector('button.accordion-header').textContent = `Effect on Hit #${idx + 1}`;
+    });
+}
+function handleRemoveDurationComponent(target) {
+    const durationScope = target.closest('.on-hit-effect-form, .accordion-content');
+    target.closest('.duration-component-row').remove();
+    _updateRelativeToCasterVisibility(durationScope);
+}
+
+function getLibraryDrawerHTML() {
+    return `
+        <!-- Drawer Header -->
+        <div class="flex justify-between items-center p-4 border-b border-gray-700 flex-shrink-0">
+            <h2 class="text-2xl font-bold text-white">Creature Library</h2>
+            <button data-action="close-library-modal" class="btn btn-danger">&times;</button>
+        </div>
+
+        <!-- Drawer Body (Two-Column Layout) -->
+        <!-- This div is the key. It grows to fill space and allows its children to scroll. -->
+        <div class="flex-grow overflow-y-auto p-4">
+            <div class="flex flex-col md:flex-row gap-4">
+                <!-- Left: Filters Sidebar -->
+                <aside id="library-filters-sidebar" class="w-full md:w-1/4 bg-gray-900 p-4 rounded-md flex-shrink-0">
+                    <h3 class="text-lg font-semibold mb-4">Filters</h3>
+                    <div class="space-y-4">
+                        <div class="flex flex-col items-center pt-8">
+                            <div id="library-filter-cr-slider"></div>
+                            <label for="library-filter-cr-slider" class="block text-center text-sm mt-2">Challenge Rating</label>
+                        </div>
+                        <div class="flex flex-col items-center pt-8">
+                            <div id="library-filter-size-slider"></div>
+                            <label for="library-filter-size-slider" class="block text-center text-sm mt-2">Size</label>
+                        </div>
+                        <input type="text" id="library-filter-name" placeholder="Search by name..." class="form-input w-full">
+                        <div>
+                            <label class="block mb-2 text-sm">Creature Type</label>
+                            <div id="library-type-select-wrapper">
+                                <select id="library-filter-type-multiselect" multiple></select>
+                            </div>
+                        </div>
+                    </div>
+                </aside>
+
+                <!-- Right: Creature Grid -->
+                <main id="library-grid-container" class="flex-grow grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"></main>
+            </div>
+        </div>
+    `;
+}
+
+function renderLibraryGrid(monsters) {
+    if (!monsters || monsters.length === 0) {
+        return '<p class="text-gray-400 text-center col-span-full">No monsters found.</p>';
+    }
+
+    const { teamA, teamB } = appState.getTeams();
+    const monsterCounts = {};
+    const countMonster = (monsterName, team) => {
+        // Strip numbers like "Goblin 2" -> "Goblin"
+        const baseName = monsterName.replace(/ \d+$/, '');
+        if (!monsterCounts[baseName]) {
+            monsterCounts[baseName] = { A: 0, B: 0 };
+        }
+        monsterCounts[baseName][team]++;
+    };
+    teamA.forEach(c => countMonster(c.name, 'A'));
+    teamB.forEach(c => countMonster(c.name, 'B'));
+
+    const targetTeam = appState.libraryTargetTeam;
+    const buttonClass = targetTeam === 'A' ? 'btn-primary' : 'btn-danger';
+
+    return monsters.map(monster => {
+        const size = monster.size ? monster.size.charAt(0).toUpperCase() + monster.size.slice(1) : '';
+        const type = monster.type ? monster.type.charAt(0).toUpperCase() + monster.type.slice(1) : '';
+        const countOnTargetTeam = monsterCounts[monster.name]?.[targetTeam] || 0;
+
+        return `
+            <div class="creature-card relative bg-gray-700 p-3 rounded-md flex flex-row items-center justify-between">
+                <div class="flex-grow">
+                    <p class="font-bold text-white">${monster.name}</p>
+                    <p class="text-sm text-gray-300">HP: ${monster.hp}, AC: ${monster.ac}, CR: ${monster.cr}</p>
+                    <p class="text-xs text-gray-400">${size} ${type}</p>
+                </div>
+                <div class="flex items-center gap-4 ml-4 flex-shrink-0">
+                    <span data-cy="creature-count" class="font-mono text-lg w-8 text-center">${countOnTargetTeam}</span>
+                    <button data-action="add-from-library" data-monster-name="${monster.name}" class="btn ${buttonClass} text-lg font-mono w-12">+</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function _getCrAsNumber(cr) {
+    if (typeof cr !== 'string') return cr;
+    if (cr.includes('/')) {
+        const parts = cr.split('/');
+        return parseInt(parts[0], 10) / parseInt(parts[1], 10);
+    }
+    return parseInt(cr, 10);
+}
+
+function _initializeLibraryFilters() {
+    // Type Filter
+    const typeSelect = document.getElementById('library-filter-type-multiselect');
+    const typeOptions = CREATURE_TYPES.map(t => ({ value: t.toLowerCase(), label: t }));
+    const typeChoices = new Choices(typeSelect, {
+        choices: typeOptions,
+        removeItemButton: true,
+        placeholder: true,
+        placeholderValue: 'Filter by type...',
+    });
+    typeSelect.addEventListener('change', applyLibraryFilters);
+
+    // CR Filter
+    const crSlider = document.getElementById('library-filter-cr-slider');
+    const allCrValues = [...new Set(MONSTER_LIBRARY_DATA.map(m => _getCrAsNumber(m.cr)))].sort((a, b) => a - b);
+    const minCr = allCrValues[0];
+    const maxCr = allCrValues[allCrValues.length - 1];
+
+    // Create a non-linear range for the CR slider to handle fractional and integer steps correctly.
+    const crRange = {};
+    const totalCrSteps = allCrValues.length - 1;
+    allCrValues.forEach((value, index) => {
+        const percentage = (index / totalCrSteps) * 100;
+        const key = index === 0 ? 'min' : (index === totalCrSteps ? 'max' : `${percentage}%`);
+        crRange[key] = value;
+    });
+
+    noUiSlider.create(crSlider, {
+        start: [minCr, maxCr],
+        connect: true,
+        range: crRange,
+        snap: true, // Snap to the defined range points.
+        tooltips: true,
+        format: {
+            to: value => { // Format tooltips to show fractions for CR < 1
+                if (value === 0.125) return '1/8';
+                if (value === 0.25) return '1/4';
+                if (value === 0.5) return '1/2';
+                return Math.round(value); // Show whole numbers for CR >= 1
+            },
+            from: value => Number(value)
+        }
+    });
+    crSlider.noUiSlider.on('set', applyLibraryFilters);
+
+    // Size Filter
+    const sizeSlider = document.getElementById('library-filter-size-slider');
+    noUiSlider.create(sizeSlider, {
+        start: [sizeOrder[0], sizeOrder[sizeOrder.length - 1]],
+        connect: true,
+        range: { 'min': 0, 'max': sizeOrder.length - 1 },
+        step: 1,
+        tooltips: true,
+        format: {
+            to: value => {
+                const size = sizeOrder[Math.round(value)];
+                return size.charAt(0).toUpperCase() + size.slice(1);
+            },
+            from: value => sizeOrder.indexOf(value)
+        }
+    });
+    sizeSlider.noUiSlider.on('set', applyLibraryFilters);
+}
+
+function applyLibraryFilters() {
+    const nameFilter = document.getElementById('library-filter-name').value.toLowerCase();
+    const crSlider = document.getElementById('library-filter-cr-slider');
+    const sizeSlider = document.getElementById('library-filter-size-slider');
+    const typeSelect = document.getElementById('library-filter-type-multiselect');
+
+    let filteredMonsters = MONSTER_LIBRARY_DATA;
+
+    // 1. Filter by Name
+    if (nameFilter) {
+        filteredMonsters = filteredMonsters.filter(monster => 
+            monster.name.toLowerCase().includes(nameFilter)
+        );
+    }
+
+    // 2. Filter by Type
+    if (typeSelect) {
+        const selectedTypes = Array.from(typeSelect.selectedOptions).map(opt => opt.value);
+        if (selectedTypes.length > 0) {
+            filteredMonsters = filteredMonsters.filter(monster => 
+                monster.type && selectedTypes.includes(monster.type.toLowerCase())
+            );
+        }
+    }
+
+    // 3. Filter by CR
+    if (crSlider?.noUiSlider) {
+        const [minCrStr, maxCrStr] = crSlider.noUiSlider.get();
+        const minCr = _getCrAsNumber(minCrStr);
+        const maxCr = _getCrAsNumber(maxCrStr);
+        filteredMonsters = filteredMonsters.filter(monster => {
+            const monsterCr = _getCrAsNumber(monster.cr);
+            return monsterCr >= minCr && monsterCr <= maxCr;
+        });
+    }
+
+    // 4. Filter by Size
+    if (sizeSlider?.noUiSlider) {
+        const [minSizeStr, maxSizeStr] = sizeSlider.noUiSlider.get();
+        const minSize = sizeOrder.indexOf(minSizeStr.toLowerCase());
+        const maxSize = sizeOrder.indexOf(maxSizeStr.toLowerCase());
+        filteredMonsters = filteredMonsters.filter(monster => {
+            const monsterSizeIndex = sizeOrder.indexOf(monster.size);
+            return monsterSizeIndex >= minSize && monsterSizeIndex <= maxSize;
+        });
+    }
+
+    const gridContainer = document.getElementById('library-grid-container');
+    if (gridContainer) {
+        gridContainer.innerHTML = renderLibraryGrid(filteredMonsters);
+    }
+}
+
+function openLibraryDrawer(team) {
+    appState.setLibraryTargetTeam(team);
+    document.getElementById('library-drawer-overlay').classList.remove('hidden');
+    const drawerContent = document.getElementById('library-drawer-content');
+    const drawer = document.getElementById('library-drawer');
+    drawerContent.innerHTML = getLibraryDrawerHTML(); // Render the content into the wrapper
+    drawer.classList.add('active');
+    _initializeLibraryFilters();
+    applyLibraryFilters(); // Initial render
+}
+
+function closeLibraryDrawer() {
+    document.getElementById('library-drawer-overlay').classList.add('hidden');
+    document.getElementById('library-drawer').classList.remove('active');
+    // Clear the target team when the modal is closed.
+    appState.setLibraryTargetTeam(null);
 }

@@ -55,11 +55,12 @@ function resetAll() {
 function closeAllTooltips() {
     document.querySelectorAll('.tooltip-box.active').forEach(box => {
         box.classList.remove('active');
-        // Clean up any inline styles that were added for positioning
-        box.style.top = '';
-        box.style.left = '';
-        box.style.right = '';
-        box.style.transform = '';
+        // If the tooltip was moved to the body, move it back to its original container.
+        if (box._originalParent) {
+            box._originalParent.appendChild(box);
+            // Clean up the temporary property.
+            delete box._originalParent;
+        }
     });
 }
 
@@ -88,9 +89,6 @@ function handleDelegatedClick(event) {
         case 'reset-all':
             resetAll();
             break;
-        case 'switch-tab':
-            switchEditorTab(tab);
-            break;
         case 'commit':
             handleCommit();
             break;
@@ -112,6 +110,19 @@ function handleDelegatedClick(event) {
         case 'open-add-editor':
             openEditorDrawer(team, null);
             break;
+        case 'open-library-modal':
+            openLibraryDrawer(team);
+            break;
+        case 'close-library-modal':
+            closeLibraryDrawer();
+            break;
+        case 'add-from-library': {
+            const monsterName = target.dataset.monsterName;
+            appState.addCombatantFromLibrary(monsterName);
+            renderTeams();
+            applyLibraryFilters(); // Re-render the library to show the new count.
+            break;
+        }
         case 'configure-selected-ability':
             configureSelectedAbility();
             break;
@@ -147,96 +158,40 @@ function handleDelegatedClick(event) {
             break;
         case 'back-to-main-editor':
             // Determine which tab was active before entering the sub-editor.
-            // The sub-editors are for 'actions' and 'abilities'.
-            const previousTab = document.getElementById('ability-select') ? 'abilities' : 'actions';
-            renderMainEditorInDrawer(previousTab);
+            const previousAccordionId = document.getElementById('ability-config-value') ? 'abilities' : 'actions';
+            renderMainEditorInDrawer({ activeAccordionId: previousAccordionId });
             break;
         case 'add-duration-component': {
-            // Find the correct container within the current scope (main form or on-hit effect form)
-            const scope = target.closest('.on-hit-effect-form, .accordion-content, .graduated-effect-rule, .targeted-effect-condition-row');
-            const container = scope.querySelector('[id^="duration-components-container"]');
-            const newRow = document.createElement('div');
-            newRow.className = 'duration-component-row flex items-center gap-2 bg-gray-900 p-2 rounded';
-            newRow.innerHTML = `
-                <input type="text" class="duration-value form-input w-20 text-center" value="1">
-                <select class="duration-unit form-select flex-grow">
-                    <option value="rounds">Rounds (start of turn)</option>
-                    <option value="turnEnds">Rounds (end of turn)</option>
-                    <option value="uses">Uses</option>
-                    <option value="minutes">Minutes</option>
-                    <option value="hours">Hours</option>
-                </select>
-                <button data-action="remove-duration-component" class="btn btn-danger p-1 text-xs">&times;</button>
-            `;
-            container.appendChild(newRow);
-            _updateRelativeToCasterVisibility(scope);
+            handleAddDurationComponent(target);
             break;
         }
         case 'add-on-hit-effect': {
-            const container = document.getElementById('on-hit-effects-container');
-            if (container) {
-                const newIndex = container.children.length;
-                const newItem = document.createElement('div');
-                newItem.className = 'accordion-item on-hit-effect-item';
-                newItem.innerHTML = `
-                    <div class="flex items-center bg-gray-800 rounded-t-md">
-                        <button type="button" class="accordion-header flex-grow" data-action="toggle-accordion">Effect on Hit #${newIndex + 1}</button>
-                        <button data-action="remove-on-hit-effect" class="btn btn-danger p-1 text-xs mr-2">&times;</button>
-                    </div>
-                    <div class="accordion-content">${_getOnHitEffectFormHTML({}, newIndex)}</div>
-                `;
-                container.appendChild(newItem);
-            }
+            handleAddOnHitEffect();
             break;
         }
         case 'add-graduated-effect': { // This now adds a whole rule card
-            // This handler now needs to work for the old forms and the new Targeted Effect form.
-            const parentForm = target.closest('.on-hit-effect-form, .accordion-content, .flex-grow');
-            if (!parentForm) break;
-
-            const container = parentForm.querySelector('[id^="graduated-effects-container-"]');
-            if (!container) break;
-
-            const onHitIndex = container.id.split('-').pop();
-            const newIndex = container.querySelectorAll('.graduated-effect-rule').length;
-            const newRuleHTML = _getGraduatedEffectRuleHTML({}, onHitIndex, newIndex);
-            container.insertAdjacentHTML('beforeend', newRuleHTML);
+            handleAddGraduatedEffect(target);
             break;
         }
         case 'add-targeted-effect-condition': {
-            const container = document.getElementById('targeted-effect-conditions-container');
-            const newIndex = container.querySelectorAll('.targeted-effect-condition-row').length;
-            const newRowHTML = _getTargetedEffectConditionRowHTML({}, newIndex);
-            container.insertAdjacentHTML('beforeend', newRowHTML);
+            handleAddTargetedEffectCondition();
             break;
         }
         case 'remove-graduated-rule':
-            target.closest('.graduated-effect-rule').remove();
+            handleRemoveGraduatedRule(target);
             break;
         case 'add-nested-effect': {
-            const ruleCard = target.closest('.graduated-effect-rule');
-            const container = ruleCard.querySelector('.nested-effects-container');
-            const newIndex = container.children.length;
-            // We don't need the parent indices for the nested row HTML, but passing for consistency.
-            const newRowHTML = _getNestedEffectRowHTML({}, null, null, newIndex);
-            container.insertAdjacentHTML('beforeend', newRowHTML);
+            handleAddNestedEffect(target);
             break;
         }
         case 'remove-nested-effect':
-            target.closest('.nested-effect-row').remove();
+            handleRemoveNestedEffect(target);
             break;
         case 'remove-on-hit-effect':
-            target.closest('.on-hit-effect-item').remove(); // Remove the item
-            // Re-number remaining on-hit effect items
-            const remainingEffects = document.querySelectorAll('#on-hit-effects-container .on-hit-effect-item');
-            remainingEffects.forEach((item, idx) => {
-                item.querySelector('button.accordion-header').textContent = `Effect on Hit #${idx + 1}`;
-            });
+            handleRemoveOnHitEffect(target);
             break;
         case 'remove-duration-component':
-            const durationScope = target.closest('.on-hit-effect-form, .accordion-content');
-            target.closest('.duration-component-row').remove();
-            _updateRelativeToCasterVisibility(durationScope);
+            handleRemoveDurationComponent(target);
             break;
         case 'toggle-accordion': {
             const clickedItem = target.closest('.accordion-item');
@@ -258,16 +213,26 @@ function handleDelegatedClick(event) {
             break;
         }
         case 'toggle-tooltip': {
-            const container = target.closest('.tooltip-container');
-            if (container) {
-                const box = container.querySelector('.tooltip-box');
+            // Stop the event from bubbling up to the document's click listener,
+            // which would immediately re-open the tooltip we are about to close.
+            event.stopPropagation();
+
+            const tooltipId = target.dataset.tooltipId;
+            if (tooltipId) {
+                const box = document.getElementById(tooltipId);
+                if (!box) return;
+
                 const wasActive = box.classList.contains('active');
 
                 // Close all tooltips first (this also cleans them up)
                 closeAllTooltips();
 
-                // If it wasn't active before, open it and position it
+                // If it wasn't active before, move it to the body, open it, and position it
                 if (!wasActive) {
+                    const container = target.closest('.tooltip-container');
+                    // Store the original parent so we can return it later.
+                    box._originalParent = container;
+                    document.body.appendChild(box);
                     box.classList.add('active');
 
                     // With position:fixed, we must manually calculate the position relative to the viewport.
@@ -279,13 +244,10 @@ function handleDelegatedClick(event) {
                     // Position vertically: 6px above the icon
                     box.style.top = `${iconRect.top - boxRect.height - 6}px`;
 
-                    // Position horizontally: centered on the icon, but constrained by the viewport
+                    // Position horizontally: centered on the icon, but constrained by the viewport edges
                     let left = iconRect.left + (iconRect.width / 2) - (boxRect.width / 2);
-                    if (left < PADDING) {
-                        left = PADDING;
-                    } else if (left + boxRect.width > viewportWidth - PADDING) {
-                        left = viewportWidth - boxRect.width - PADDING;
-                    }
+                    if (left < PADDING) left = PADDING;
+                    if (left + boxRect.width > viewportWidth - PADDING) left = viewportWidth - boxRect.width - PADDING;
                     box.style.left = `${left}px`;
                 }
             }
@@ -339,9 +301,18 @@ function handleDelegatedChange(event) {
     }
 }
 
+function handleDelegatedInput(event) {
+    const target = event.target;
+
+    if (target.id === 'library-filter-name') {
+        applyLibraryFilters();
+    }
+}
+
 function initializeApp() {
     document.body.addEventListener('click', handleDelegatedClick);
     document.body.addEventListener('change', handleDelegatedChange);
+    document.body.addEventListener('input', handleDelegatedInput);
 
     // Create and configure hidden file inputs for testability and functionality.
     ['A', 'B'].forEach(team => {

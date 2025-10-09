@@ -14,6 +14,7 @@ class AppState {
             index: -1,    // The index of the action in the combatant's attacks array. -1 for new.
             isNew: true
         };
+        this.libraryTargetTeam = null; // 'A' or 'B', the team to add a creature to from the library.
     }
 
     getTeams() {
@@ -26,6 +27,41 @@ class AppState {
 
     getActionEditorState() {
         return this.actionEditorState;
+    }
+
+    getLibraryTargetTeam() {
+        return this.libraryTargetTeam;
+    }
+
+    setLibraryTargetTeam(team) {
+        this.libraryTargetTeam = team;
+    }
+
+    addCombatantFromLibrary(monsterName) {
+        const team = this.getLibraryTargetTeam();
+        if (!team) {
+            console.error("Cannot add from library: No target team selected.");
+            return;
+        }
+
+        const monsterTemplate = MONSTER_LIBRARY_DATA.find(m => m.name === monsterName);
+        if (!monsterTemplate) {
+            console.error(`Monster with name "${monsterName}" not found in library.`);
+            return;
+        }
+
+        const newCombatant = deepCopy(monsterTemplate);
+        newCombatant.id = `c${Date.now()}${Math.random()}`;
+        newCombatant.team = team;
+
+        // Handle numbered names for duplicates
+        const teamArr = team === 'A' ? this.teamA : this.teamB;
+        const sameNameCombatants = teamArr.filter(c => c.name.startsWith(newCombatant.name));
+        if (sameNameCombatants.length > 0) {
+            newCombatant.name = `${newCombatant.name} ${sameNameCombatants.length + 1}`;
+        }
+
+        this.addCombatant(team, newCombatant);
     }
 
     openEditorForUpdate(team, id) {
@@ -178,6 +214,7 @@ class AppState {
         this.teamB = [];
         this.clearEditorState();
         this.clearActionEditorState();
+        this.libraryTargetTeam = null;
     }
 }
 
