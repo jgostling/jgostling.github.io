@@ -9,7 +9,11 @@
 }
 
 /* Apply dark theme to both Choices.js instances */
+#ability-config-wrapper .choices,
 #ability-select-wrapper .choices,
+#action-properties-wrapper .choices,
+[id^="onhit-if-target-is-wrapper-"] .choices,
+[id^="onhit-resistance-types-wrapper-"] .choices,
 #library-type-select-wrapper .choices {
     /* Override CSS variables for our dark theme */
     --choices-bg-color: #374151; /* bg-gray-700 for the main input area */

@@ -7,7 +7,8 @@ class AppState {
         this.editorState = {
             combatant: null, // The combatant object being edited, or null for a new one
             team: null,      // 'A' or 'B'
-            isEditing: false // true if updating, false if adding
+            isEditing: false, // true if updating, false if adding
+            activeAccordionId: 'general' // The ID of the last active accordion in the main editor
         };
         this.actionEditorState = {
             action: null, // The action object being edited
@@ -71,7 +72,8 @@ class AppState {
             this.editorState = {
                 combatant: deepCopy(combatant),
                 team: team,
-                isEditing: true
+                isEditing: true,
+                activeAccordionId: 'general'
             };
         }
     }
@@ -86,7 +88,8 @@ class AppState {
                 spell_slots: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0 }
             },
             team: team,
-            isEditing: false
+            isEditing: false,
+            activeAccordionId: 'general'
         };
     }
 
@@ -202,7 +205,7 @@ class AppState {
     }
 
     clearEditorState() {
-        this.editorState = { combatant: null, team: null, isEditing: false };
+        this.editorState = { combatant: null, team: null, isEditing: false, activeAccordionId: 'general' };
     }
 
     clearActionEditorState() {

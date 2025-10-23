@@ -192,8 +192,12 @@ function readActionFromForm() {
 
                 // Read extra config for the primary effect (e.g., resistance types)
                 const resistanceSelector = firstConditionRow.querySelector('#action-editor-resistance-types');
-                if (resistanceSelector) {
-                    const selectedTypes = Array.from(resistanceSelector.selectedOptions).map(opt => opt.value);
+                // The selector might not exist if the condition is not configurable.
+                // Choices.js keeps the underlying select's selectedOptions in sync.
+                if (resistanceSelector?.selectedOptions.length > 0) {
+                    const selectedTypes = Array.from(resistanceSelector.selectedOptions)
+                        .map(opt => opt.value)
+                        .filter(Boolean);
                     if (selectedTypes.length > 0) effectObject.types = selectedTypes;
                 }
 

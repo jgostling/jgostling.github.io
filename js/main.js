@@ -76,6 +76,13 @@ function _updateRelativeToCasterVisibility(scope = document) {
     }
 }
 
+function _saveActiveAccordionState() {
+    const activeAccordion = document.querySelector('#editor-drawer-content .accordion-item.active .accordion-header');
+    if (activeAccordion) {
+        appState.getEditorState().activeAccordionId = activeAccordion.dataset.accordionId;
+    }
+}
+
 function handleDelegatedClick(event) {
     const target = event.target.closest('[data-action]');
     if (!target) return;
@@ -135,15 +142,21 @@ function handleDelegatedClick(event) {
         case 'remove-ability':
             removeAbilityFromEditor(key);
             break;
-        case 'edit-ability':
+        case 'edit-ability': {
+            _saveActiveAccordionState();
             renderAbilityConfigScreen(key);
             break;
-        case 'open-action-editor':
+        }
+        case 'open-action-editor': {
+            _saveActiveAccordionState();
             renderActionEditorInDrawer();
             break;
-        case 'edit-action':
+        }
+        case 'edit-action': {
+            _saveActiveAccordionState();
             renderActionEditorInDrawer(index);
             break;
+        }
         case 'select-action-type':
             selectActionType(type);
             break;
@@ -156,11 +169,11 @@ function handleDelegatedClick(event) {
         case 'commit-action':
             commitAction();
             break;
-        case 'back-to-main-editor':
-            // Determine which tab was active before entering the sub-editor.
-            const previousAccordionId = document.getElementById('ability-config-value') ? 'abilities' : 'actions';
+        case 'back-to-main-editor': {
+            const previousAccordionId = appState.getEditorState().activeAccordionId || 'general';
             renderMainEditorInDrawer({ activeAccordionId: previousAccordionId });
             break;
+        }
         case 'add-duration-component': {
             handleAddDurationComponent(target);
             break;
@@ -284,11 +297,21 @@ function handleDelegatedChange(event) {
         // Get the selected condition key.
         const selectedConditionKey = target.value;
 
+        // Determine the index of the on-hit effect form being changed.
+        let index = 0;
+        const onHitItem = target.closest('.on-hit-effect-item');
+        if (onHitItem) {
+            const allOnHitItems = Array.from(onHitItem.parentElement.children);
+            index = allOnHitItems.indexOf(onHitItem);
+        }
+
         // Generate only the HTML for the extra configuration based on the selected condition.
-        const extraConfigHTML = _getExtraConfigHTMLForEffect({ name: selectedConditionKey });
+        const extraConfigHTML = _getExtraConfigHTMLForEffect({ name: selectedConditionKey }, index);
 
         // Surgically replace only the extra config HTML, leaving the rest of the form untouched.
         extraConfigContainer.innerHTML = extraConfigHTML;
+        // Initialize the new multi-select component that was just rendered.
+        _initializeMultiSelects(`#onhit-resistance-types-wrapper-${index} select`);
     } else if (target.classList.contains('duration-unit')) {
         // When a duration unit is changed, we need to show/hide the 'relativeTo' checkbox.
         const scope = target.closest('.on-hit-effect-form, .accordion-content, .targeted-effect-condition-row');
@@ -301,18 +324,9 @@ function handleDelegatedChange(event) {
     }
 }
 
-function handleDelegatedInput(event) {
-    const target = event.target;
-
-    if (target.id === 'library-filter-name') {
-        applyLibraryFilters();
-    }
-}
-
 function initializeApp() {
     document.body.addEventListener('click', handleDelegatedClick);
     document.body.addEventListener('change', handleDelegatedChange);
-    document.body.addEventListener('input', handleDelegatedInput);
 
     // Create and configure hidden file inputs for testability and functionality.
     ['A', 'B'].forEach(team => {

@@ -242,6 +242,26 @@ function _initializeAbilitySelect() {
     return null;
 }
 
+/**
+ * Initializes all elements matching a selector as Choices.js multi-select instances.
+ * This provides a consistent look and feel for all multi-selects in the app.
+ * @param {string} selector - The CSS selector for the <select> elements to initialize.
+ */
+function _initializeMultiSelects(selector) {
+    const elements = document.querySelectorAll(selector);
+    elements.forEach(el => {
+        if (el && typeof Choices !== 'undefined' && !el.classList.contains('choices__input')) {
+            new Choices(el, {
+                removeItemButton: true,
+                placeholder: true,
+                placeholderValue: 'Select option(s)...',
+                shouldSort: false,
+                fuseOptions: { threshold: 0.0 } // Exact match only
+            });
+        }
+    });
+}
+
 function updateAbilityDescription() {
     const select = document.getElementById('ability-select');
     const container = document.getElementById('ability-description-container');
@@ -443,7 +463,9 @@ function _getAbilityMultiSelectHTML(ability, options, selectedValues = []) {
 
     return `
         <label for="ability-config-types" class="block font-semibold mb-1">${ability.name} Types</label>
-        <select id="ability-config-types" class="form-select w-full h-48" multiple>${optionHTML}</select>
+        <div id="ability-config-wrapper">
+            <select id="ability-config-types" class="form-select w-full" multiple>${optionHTML}</select>
+        </div>
     `;
 }
 
@@ -541,6 +563,9 @@ function renderAbilityConfigScreen(abilityKey) {
             <button data-action="back-to-main-editor" class="btn btn-secondary">Back</button>
         </div>
     `;
+
+    // Initialize the new multi-select component.
+    _initializeMultiSelects('[id="ability-config-wrapper"] select');
 }
 
 function commitAbility(key) {
@@ -646,6 +671,7 @@ function selectActionType(type) {
         default: console.error(`Unknown action type: ${type}`); return;
     }
     drawerContent.innerHTML = formHTML;
+    _initializeMultiSelects('#action-properties-wrapper select, [id^="onhit-if-target-is-wrapper-"] select, [id^="onhit-resistance-types-wrapper-"] select');
 }
 
 function commitAction() {
@@ -733,19 +759,20 @@ function _getDurationComponentsHTML(effect, index = null) {
     `;
 }
 
-function _getExtraConfigHTMLForEffect(effect) {
+function _getExtraConfigHTMLForEffect(effect, index) {
     let extraConfigHTML = '';
     const selectedConditionKey = effect?.name;
     if (selectedConditionKey) {
         const conditionDef = CONDITIONS_LIBRARY[selectedConditionKey];
         if (conditionDef && conditionDef.configurable === 'resistance_types') {
             const selectedTypes = effect?.types || [];
+            const wrapperId = `onhit-resistance-types-wrapper-${index}`;
             const damageTypeOptions = DAMAGE_TYPES.map(type => 
                 `<option value="${type}" ${selectedTypes.includes(type) ? 'selected' : ''}>${type.charAt(0).toUpperCase() + type.slice(1)}</option>`
             ).join('');
 
             extraConfigHTML = `
-                <div class="mt-2" data-cy="resistance-types-config">
+                <div class="mt-2" id="${wrapperId}">
                     <label for="action-editor-resistance-types" class="block font-semibold mb-1">Resistance Types</label>
                     <select id="action-editor-resistance-types" class="form-select w-full" multiple>
                         ${damageTypeOptions}
@@ -897,7 +924,9 @@ function _getActionPropertiesAccordionHTML(action) {
             <button type="button" class="accordion-header" data-action="toggle-accordion">Action Properties</button>
             <div class="accordion-content">
                 <div class="p-3">
-                    <select id="action-editor-properties" class="form-select w-full" multiple>${propertyOptions}</select>
+                    <div id="action-properties-wrapper">
+                        <select id="action-editor-properties" class="form-select w-full" multiple>${propertyOptions}</select>
+                    </div>
                 </div>
             </div>
         </div>
@@ -911,11 +940,11 @@ function _getOnHitEffectFormHTML(effectData = {}, index) {
         .map(([key, def]) => `<option value="${key}" ${effectData.effect?.name === key ? 'selected' : ''}>${def.name}</option>`)
         .join('');
 
-    const graduatedEffectsHTML = (effectData.on_fail_by || []).map((rule, ruleIndex) => {
+    const graduatedEffectsHTML = (effectData.on_fail_by || []).map((rule, ruleIndex) => { // eslint-disable-line no-unused-vars
         return _getGraduatedEffectRuleHTML(rule, index, ruleIndex);
     }).join('');
 
-    const extraConfigHTML = _getExtraConfigHTMLForEffect(effectData.effect);
+    const extraConfigHTML = _getExtraConfigHTMLForEffect(effectData.effect, index);
 
     return `
         <div class="on-hit-effect-form p-3 space-y-4">
@@ -924,10 +953,12 @@ function _getOnHitEffectFormHTML(effectData = {}, index) {
                     <label for="action-editor-onhit-if-target-is" class="block text-sm font-medium text-gray-300">Condition: If Target Is...</label>
                     ${_getTooltipHTML("If a type is selected, this on-hit effect will only apply if the target's creature type matches.")}
                 </div>
-                <select class="action-editor-onhit-if-target-is form-select w-full" multiple>
-                    <option value="">-- Any Creature Type --</option>
-                    ${CREATURE_TYPES.map(t => `<option value="${t.toLowerCase()}" ${Array.isArray(effectData.if_target_is) && effectData.if_target_is.includes(t.toLowerCase()) ? 'selected' : ''}>${t}</option>`).join('')}
-                </select>
+                <div id="onhit-if-target-is-wrapper-${index}">
+                    <select class="action-editor-onhit-if-target-is form-select w-full" multiple>
+                        <option value="">-- Any Creature Type --</option>
+                        ${CREATURE_TYPES.map(t => `<option value="${t.toLowerCase()}" ${Array.isArray(effectData.if_target_is) && effectData.if_target_is.includes(t.toLowerCase()) ? 'selected' : ''}>${t}</option>`).join('')}
+                    </select>
+                </div>
             </div>
             <div class="space-y-2">
                 <label class="block text-sm font-medium text-gray-300">Bonus Damage</label>
@@ -1279,6 +1310,10 @@ function handleAddOnHitEffect() {
             <div class="accordion-content">${_getOnHitEffectFormHTML({}, newIndex)}</div>
         `;
         container.appendChild(newItem);
+        // Initialize Choices.js for the newly added multi-select.
+        // The selector needs to be specific to the new item to avoid re-initializing existing ones.
+        const newSelectSelector = `#onhit-if-target-is-wrapper-${newIndex} select`;
+        _initializeMultiSelects(newSelectSelector);
     }
 }
 
@@ -1331,13 +1366,12 @@ function getLibraryDrawerHTML() {
         </div>
 
         <!-- Drawer Body (Two-Column Layout) -->
-        <!-- This div is the key. It grows to fill space and allows its children to scroll. -->
-        <div class="flex-grow overflow-y-auto p-4">
-            <div class="flex flex-col md:flex-row gap-4">
-                <!-- Left: Filters Sidebar -->
-                <aside id="library-filters-sidebar" class="w-full md:w-1/4 bg-gray-900 p-4 rounded-md flex-shrink-0">
-                    <h3 class="text-lg font-semibold mb-4">Filters</h3>
-                    <div class="space-y-4">
+        <!-- Filters Accordion (now part of the sticky header area) -->
+        <div id="library-filters-sidebar" class="p-4 pt-0 flex-shrink-0">
+            <div class="accordion-item bg-gray-900 rounded-md">
+                <button type="button" class="accordion-header" data-action="toggle-accordion" data-cy="library-filters-accordion-header">Filters</button>
+                <div class="accordion-content">
+                    <div class="p-4 space-y-4">
                         <div class="flex flex-col items-center pt-8">
                             <div id="library-filter-cr-slider"></div>
                             <label for="library-filter-cr-slider" class="block text-center text-sm mt-2">Challenge Rating</label>
@@ -1353,12 +1387,18 @@ function getLibraryDrawerHTML() {
                                 <select id="library-filter-type-multiselect" multiple></select>
                             </div>
                         </div>
+                        <div class="flex items-center gap-2 pt-2">
+                            <input type="checkbox" id="library-filter-experimental" class="form-checkbox">
+                            <label for="library-filter-experimental">Show Experimental</label>
+                        </div>
                     </div>
-                </aside>
-
-                <!-- Right: Creature Grid -->
-                <main id="library-grid-container" class="flex-grow grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"></main>
+                </div>
             </div>
+        </div>
+
+        <!-- This div is the key. It grows to fill space and allows its children to scroll. -->
+        <div class="flex-grow overflow-y-auto p-4 pt-0">
+            <main id="library-grid-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"></main>
         </div>
     `;
 }
@@ -1423,6 +1463,10 @@ function _initializeLibraryFilters() {
         removeItemButton: true,
         placeholder: true,
         placeholderValue: 'Filter by type...',
+        fuseOptions: {
+            threshold: 0.0,
+            ignoreLocation: true,
+        }
     });
     typeSelect.addEventListener('change', applyLibraryFilters);
 
@@ -1476,6 +1520,10 @@ function _initializeLibraryFilters() {
         }
     });
     sizeSlider.noUiSlider.on('set', applyLibraryFilters);
+
+    // Experimental Filter & Name Filter
+    document.getElementById('library-filter-experimental').addEventListener('change', applyLibraryFilters);
+    document.getElementById('library-filter-name').addEventListener('input', applyLibraryFilters);
 }
 
 function applyLibraryFilters() {
@@ -1483,6 +1531,14 @@ function applyLibraryFilters() {
     const crSlider = document.getElementById('library-filter-cr-slider');
     const sizeSlider = document.getElementById('library-filter-size-slider');
     const typeSelect = document.getElementById('library-filter-type-multiselect');
+    const experimentalCheckbox = document.getElementById('library-filter-experimental');
+    const gridContainer = document.getElementById('library-grid-container');
+
+    const filteredMonsters = getFilteredMonsters(nameFilter, crSlider, sizeSlider, typeSelect, experimentalCheckbox);
+    gridContainer.innerHTML = renderLibraryGrid(filteredMonsters);
+}
+
+function getFilteredMonsters(nameFilter, crSlider, sizeSlider, typeSelect, experimentalCheckbox) {
 
     let filteredMonsters = MONSTER_LIBRARY_DATA;
 
@@ -1525,10 +1581,12 @@ function applyLibraryFilters() {
         });
     }
 
-    const gridContainer = document.getElementById('library-grid-container');
-    if (gridContainer) {
-        gridContainer.innerHTML = renderLibraryGrid(filteredMonsters);
+    // 5. Filter by Experimental status
+    if (experimentalCheckbox && !experimentalCheckbox.checked) {
+        filteredMonsters = filteredMonsters.filter(monster => !monster.isExperimental);
     }
+
+    return filteredMonsters;
 }
 
 function openLibraryDrawer(team) {
